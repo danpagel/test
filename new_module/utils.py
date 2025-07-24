@@ -771,3 +771,29 @@ def hash_password(password: str, email: str) -> str:
     
     # Return as base64
     return base64_url_encode(encrypted)
+
+
+def get_chunks(size: int) -> List[Tuple[int, int]]:
+    """
+    Calculate chunk positions for file operations.
+    
+    Args:
+        size: Total file size
+        
+    Returns:
+        List of (start, end) positions for chunks
+    """
+    chunk_start = 0
+    chunk_size = 1024 * 256  # Start with 256KB chunks
+    chunks = []
+    
+    while chunk_start < size:
+        chunk_end = min(chunk_start + chunk_size, size)
+        chunks.append((chunk_start, chunk_end))
+        chunk_start = chunk_end
+        
+        # Increase chunk size progressively (up to 1MB)
+        if chunk_size < 1024 * 1024:
+            chunk_size = min(chunk_size * 2, 1024 * 1024)
+    
+    return chunks
