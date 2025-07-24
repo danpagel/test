@@ -79,8 +79,24 @@ def _install_and_import(package: str, pip_name: Optional[str] = None) -> None:
 
 
 # Install required packages if not available
-for _pkg, _pip in [("Crypto", "pycryptodome"), ("requests", "requests")]:
-    _install_and_import(_pkg, _pip)
+try:
+    import Crypto
+except ImportError:
+    _install_and_import("pycryptodome", "pycryptodome")
+    # Try alternative import path
+    try:
+        import Crypto
+    except ImportError:
+        # Some systems need this path
+        import sys
+        import os
+        site_packages = next(p for p in sys.path if 'site-packages' in p)
+        sys.path.insert(0, os.path.join(site_packages, 'Crypto'))
+
+try:
+    import requests
+except ImportError:
+    _install_and_import("requests", "requests")
 
 # ==============================================
 # === STANDARD LIBRARY IMPORTS ===
@@ -486,8 +502,14 @@ def aes_cbc_encrypt(data: bytes, key: bytes, use_zero_iv: bool = False) -> bytes
         raise ValidationError("AES key must be 16 bytes")
     
     if use_zero_iv:
-        # Use zero IV for Mega compatibility - no padding handling here
+        # Use zero IV for Mega compatibility - add padding
         iv = b'\x00' * 16
+        # Pad data to AES block size (16 bytes)
+        padding_length = 16 - (len(data) % 16)
+        if padding_length == 16:
+            padding_length = 0
+        if padding_length > 0:
+            data = data + bytes([padding_length] * padding_length)
         cipher = AES.new(key, AES.MODE_CBC, iv)
         return cipher.encrypt(data)
     else:
@@ -525,10 +547,19 @@ def aes_cbc_decrypt(data: bytes, key: bytes, use_zero_iv: bool = False) -> bytes
         raise ValidationError("AES key must be 16 bytes")
     
     if use_zero_iv:
-        # Use zero IV for Mega compatibility - no padding removal here
+        # Use zero IV for Mega compatibility - handle padding removal
         iv = b'\x00' * 16
         cipher = AES.new(key, AES.MODE_CBC, iv)
-        return cipher.decrypt(data)
+        decrypted = cipher.decrypt(data)
+        # Remove padding if present
+        if len(decrypted) > 0:
+            padding_length = decrypted[-1]
+            if padding_length <= 16 and padding_length > 0:
+                # Verify padding
+                valid_padding = all(decrypted[-i] == padding_length for i in range(1, padding_length + 1))
+                if valid_padding:
+                    decrypted = decrypted[:-padding_length]
+        return decrypted
     else:
         if len(data) < 16:
             raise ValidationError("Encrypted data too short")
@@ -2967,6 +2998,708 @@ def rename_node_with_events(handle: str, new_name: str,
         raise
 
 
-# This is the beginning of the merged file structure
-# More content will be added as we continue merging the modules
-logger.info(f"MegaPythonLibrary v{__version__} (merged) initializing...")
+# ==============================================
+# === EVENT SYSTEM ===
+# ==============================================
+
+@dataclass
+class EventInfo:
+    """Information about a triggered event."""
+    event_type: str
+    data: Dict[str, Any]
+    timestamp: datetime = field(default_factory=datetime.now)
+    source: Optional[str] = None
+
+
+class EventManager:
+    """Simple event management system."""
+    
+    def __init__(self):
+        self._callbacks: Dict[str, List[Callable]] = {}
+        self._lock = threading.RLock()
+    
+    def on(self, event: str, callback: Callable) -> None:
+        """Register an event callback."""
+        with self._lock:
+            if event not in self._callbacks:
+                self._callbacks[event] = []
+            self._callbacks[event].append(callback)
+    
+    def off(self, event: str, callback: Callable = None) -> None:
+        """Remove event callback(s)."""
+        with self._lock:
+            if event in self._callbacks:
+                if callback:
+                    if callback in self._callbacks[event]:
+                        self._callbacks[event].remove(callback)
+                else:
+                    self._callbacks[event].clear()
+    
+    def trigger(self, event: str, data: Dict[str, Any]) -> None:
+        """Trigger an event."""
+        with self._lock:
+            if event in self._callbacks:
+                event_info = EventInfo(event, data)
+                for callback in self._callbacks[event]:
+                    try:
+                        callback(event_info.data)
+                    except Exception as e:
+                        logger.warning(f"Event callback failed: {e}")
+
+
+# Global event manager
+_event_manager = EventManager()
+
+
+# ==============================================
+# === UTILITY FUNCTIONS ===
+# ==============================================
+
+def detect_file_type(file_path: str) -> Optional[str]:
+    """
+    Detect MIME type from file path.
+    
+    Args:
+        file_path: Path to file
+        
+    Returns:
+        MIME type string or None if not detectable
+    """
+    try:
+        mime_type, _ = mimetypes.guess_type(file_path)
+        return mime_type
+    except Exception:
+        return None
+
+
+def get_file_extension(file_path: str) -> str:
+    """
+    Get file extension from path.
+    
+    Args:
+        file_path: Path to file
+        
+    Returns:
+        File extension (including dot) or empty string
+    """
+    return os.path.splitext(file_path)[1].lower()
+
+
+def is_image_file(file_path: str) -> bool:
+    """
+    Check if file is an image based on MIME type.
+    
+    Args:
+        file_path: Path to file
+        
+    Returns:
+        True if file is an image
+    """
+    mime_type = detect_file_type(file_path)
+    return mime_type is not None and mime_type.startswith('image/')
+
+
+def is_video_file(file_path: str) -> bool:
+    """
+    Check if file is a video based on MIME type.
+    
+    Args:
+        file_path: Path to file
+        
+    Returns:
+        True if file is a video
+    """
+    mime_type = detect_file_type(file_path)
+    return mime_type is not None and mime_type.startswith('video/')
+
+
+def is_audio_file(file_path: str) -> bool:
+    """
+    Check if file is audio based on MIME type.
+    
+    Args:
+        file_path: Path to file
+        
+    Returns:
+        True if file is audio
+    """
+    mime_type = detect_file_type(file_path)
+    return mime_type is not None and mime_type.startswith('audio/')
+
+
+def search_nodes_by_name(pattern: str, folder_handle: Optional[str] = None) -> List[MegaNode]:
+    """
+    Search for nodes by name pattern.
+    
+    Args:
+        pattern: Search pattern (supports wildcards)
+        folder_handle: Folder to search in (None for all)
+        
+    Returns:
+        List of matching nodes
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    if fs_tree.needs_refresh() or not fs_tree.nodes:
+        refresh_filesystem()
+    
+    results = []
+    nodes_to_search = []
+    
+    if folder_handle:
+        nodes_to_search = fs_tree.get_children(folder_handle)
+    else:
+        nodes_to_search = list(fs_tree.nodes.values())
+    
+    for node in nodes_to_search:
+        if fnmatch.fnmatch(node.name.lower(), pattern.lower()):
+            results.append(node)
+    
+    return results
+
+
+def get_nodes() -> Dict[str, MegaNode]:
+    """Get all nodes in the filesystem."""
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    if fs_tree.needs_refresh() or not fs_tree.nodes:
+        refresh_filesystem()
+    
+    return fs_tree.nodes.copy()
+
+
+# ==============================================
+# === MAIN MPL CLIENT CLASS ===
+# ==============================================
+
+class MPLClient:
+    """
+    Main Mega.nz client providing unified access to all functionality.
+    
+    This class integrates authentication, file operations, and user management
+    into a single, easy-to-use interface.
+    """
+    
+    def __init__(self, auto_login: bool = True):
+        """
+        Initialize Mega client.
+        
+        Args:
+            auto_login: If True, attempt to restore saved session on startup
+        """
+        self.auto_login = auto_login
+        self._event_callbacks = {}
+        
+        # Set up logging
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("MPLClient initialized")
+        
+        # Set up event manager
+        self._event_manager = EventManager()
+        
+        # Attempt to restore session if requested
+        if auto_login:
+            try:
+                if load_user_session():
+                    self.logger.info(f"Session restored for {get_current_user()}")
+                    self._refresh_filesystem_if_needed()
+            except Exception as e:
+                self.logger.warning(f"Failed to restore session: {e}")
+    
+    def _refresh_filesystem_if_needed(self) -> None:
+        """Refresh filesystem if needed."""
+        if fs_tree.needs_refresh() or not fs_tree.nodes:
+            try:
+                refresh_filesystem()
+            except Exception as e:
+                self.logger.warning(f"Failed to refresh filesystem: {e}")
+    
+    def _trigger_event(self, event_type: str, data: Dict[str, Any]) -> None:
+        """Internal method to trigger events."""
+        try:
+            self._event_manager.trigger(event_type, data)
+        except Exception as e:
+            self.logger.warning(f"Event trigger failed: {e}")
+    
+    # ==============================================
+    # === AUTHENTICATION METHODS ===
+    # ==============================================
+    
+    def login(self, email: str, password: str, save_session: bool = True) -> bool:
+        """
+        Log in to Mega.
+        
+        Args:
+            email: User email address
+            password: User password
+            save_session: Whether to save session for auto-login
+            
+        Returns:
+            True if login successful
+        """
+        try:
+            session = login_with_events(email, password, save_session, self._trigger_event)
+            self._refresh_filesystem_if_needed()
+            return True
+        except Exception as e:
+            self.logger.error(f"Login failed: {e}")
+            return False
+    
+    def logout(self) -> bool:
+        """
+        Log out from Mega.
+        
+        Returns:
+            True if logout successful
+        """
+        try:
+            logout_with_events(self._trigger_event)
+            fs_tree.clear()
+            return True
+        except Exception as e:
+            self.logger.error(f"Logout failed: {e}")
+            return False
+    
+    def register(self, email: str, password: str, first_name: str = "", last_name: str = "") -> bool:
+        """
+        Register a new user account.
+        
+        Args:
+            email: User email address
+            password: User password
+            first_name: User's first name
+            last_name: User's last name
+            
+        Returns:
+            True if registration successful
+        """
+        try:
+            return register_with_events(email, password, first_name, last_name, self._trigger_event)
+        except Exception as e:
+            self.logger.error(f"Registration failed: {e}")
+            return False
+    
+    def verify_email(self, email: str, verification_code: str) -> bool:
+        """
+        Verify email address.
+        
+        Args:
+            email: Email address
+            verification_code: Verification code from email
+            
+        Returns:
+            True if verification successful
+        """
+        try:
+            return verify_email_with_events(email, verification_code, self._trigger_event)
+        except Exception as e:
+            self.logger.error(f"Email verification failed: {e}")
+            return False
+    
+    def change_password(self, old_password: str, new_password: str) -> bool:
+        """
+        Change user password.
+        
+        Args:
+            old_password: Current password
+            new_password: New password
+            
+        Returns:
+            True if password change successful
+        """
+        try:
+            return change_password_with_events(old_password, new_password, self._trigger_event)
+        except Exception as e:
+            self.logger.error(f"Password change failed: {e}")
+            return False
+    
+    def is_logged_in(self) -> bool:
+        """Check if user is logged in."""
+        return is_logged_in()
+    
+    def get_current_user(self) -> Optional[str]:
+        """Get current user email."""
+        return get_current_user()
+    
+    def get_user_info(self) -> Dict[str, Any]:
+        """Get current user information."""
+        return get_user_info()
+    
+    def get_user_quota(self) -> Dict[str, int]:
+        """Get user storage quota information."""
+        return get_user_quota()
+    
+    # ==============================================
+    # === FILESYSTEM METHODS ===
+    # ==============================================
+    
+    def list(self, path: str = "/") -> List[MegaNode]:
+        """
+        List contents of a folder.
+        
+        Args:
+            path: Folder path to list (default: root)
+            
+        Returns:
+            List of nodes in the folder
+        """
+        if not is_logged_in():
+            raise RequestError("Not logged in")
+        
+        self._refresh_filesystem_if_needed()
+        
+        # Handle path-based lookup
+        if path != "/":
+            node = get_node_by_path(path)
+            if not node:
+                raise RequestError(f"Path not found: {path}")
+            folder_handle = node.handle
+        else:
+            folder_handle = None
+        
+        return list_folder(folder_handle)
+    
+    def create_folder(self, name: str, parent_path: str = "/") -> MegaNode:
+        """
+        Create a new folder.
+        
+        Args:
+            name: Name of the folder
+            parent_path: Parent folder path
+            
+        Returns:
+            Created folder node
+        """
+        parent_node = get_node_by_path(parent_path)
+        if not parent_node:
+            raise RequestError(f"Parent folder not found: {parent_path}")
+        
+        return create_folder_with_events(name, parent_node.handle, self._trigger_event)
+    
+    def upload(self, local_path: str, remote_path: str = "/") -> MegaNode:
+        """
+        Upload a file.
+        
+        Args:
+            local_path: Local file path
+            remote_path: Remote folder path
+            
+        Returns:
+            Uploaded file node
+        """
+        return upload_file_with_events(local_path, remote_path, self._trigger_event)
+    
+    def download(self, remote_path: str, local_path: str) -> bool:
+        """
+        Download a file.
+        
+        Args:
+            remote_path: Remote file path or handle
+            local_path: Local path to save file
+            
+        Returns:
+            True if download successful
+        """
+        # Check if remote_path is a handle or path
+        if remote_path.startswith('/') or remote_path == '':
+            node = get_node_by_path(remote_path)
+            if not node:
+                raise RequestError(f"File not found: {remote_path}")
+            handle = node.handle
+        else:
+            handle = remote_path
+        
+        return download_file_with_events(handle, local_path, self._trigger_event)
+    
+    def delete(self, path: str) -> bool:
+        """
+        Delete a file or folder.
+        
+        Args:
+            path: Path to delete
+            
+        Returns:
+            True if deletion successful
+        """
+        node = get_node_by_path(path)
+        if not node:
+            raise RequestError(f"Path not found: {path}")
+        
+        return delete_node_with_events(node.handle, self._trigger_event)
+    
+    def move(self, source_path: str, destination_path: str) -> bool:
+        """
+        Move a file or folder.
+        
+        Args:
+            source_path: Source path
+            destination_path: Destination folder path
+            
+        Returns:
+            True if move successful
+        """
+        source_node = get_node_by_path(source_path)
+        dest_node = get_node_by_path(destination_path)
+        
+        if not source_node:
+            raise RequestError(f"Source not found: {source_path}")
+        if not dest_node:
+            raise RequestError(f"Destination not found: {destination_path}")
+        
+        return move_node_with_events(source_node.handle, dest_node.handle, self._trigger_event)
+    
+    def rename(self, path: str, new_name: str) -> bool:
+        """
+        Rename a file or folder.
+        
+        Args:
+            path: Path to rename
+            new_name: New name
+            
+        Returns:
+            True if rename successful
+        """
+        node = get_node_by_path(path)
+        if not node:
+            raise RequestError(f"Path not found: {path}")
+        
+        return rename_node_with_events(node.handle, new_name, self._trigger_event)
+    
+    def search(self, pattern: str, folder_path: str = None) -> List[MegaNode]:
+        """
+        Search for files and folders by name.
+        
+        Args:
+            pattern: Search pattern (supports wildcards)
+            folder_path: Folder to search in (None for all)
+            
+        Returns:
+            List of matching nodes
+        """
+        folder_handle = None
+        if folder_path:
+            folder_node = get_node_by_path(folder_path)
+            if folder_node:
+                folder_handle = folder_node.handle
+        
+        return search_nodes_by_name(pattern, folder_handle)
+    
+    def get_node_info(self, path: str) -> Optional[MegaNode]:
+        """
+        Get information about a node.
+        
+        Args:
+            path: Path to the node
+            
+        Returns:
+            Node information or None if not found
+        """
+        return get_node_by_path(path)
+    
+    def refresh_filesystem(self) -> None:
+        """Refresh filesystem data."""
+        refresh_filesystem_with_events(self._trigger_event)
+    
+    # ==============================================
+    # === EVENT METHODS ===
+    # ==============================================
+    
+    def on(self, event: str, callback: Callable) -> None:
+        """
+        Register an event callback.
+        
+        Args:
+            event: Event name
+            callback: Callback function
+        """
+        self._event_manager.on(event, callback)
+    
+    def off(self, event: str, callback: Callable = None) -> None:
+        """
+        Remove an event callback.
+        
+        Args:
+            event: Event name
+            callback: Callback function (None to remove all)
+        """
+        self._event_manager.off(event, callback)
+    
+    # ==============================================
+    # === UTILITY METHODS ===
+    # ==============================================
+    
+    def get_storage_info(self) -> Dict[str, Any]:
+        """
+        Get comprehensive storage information.
+        
+        Returns:
+            Dictionary with storage details
+        """
+        if not is_logged_in():
+            return {'error': 'Not logged in'}
+        
+        try:
+            quota = get_user_quota()
+            nodes = get_nodes()
+            
+            file_count = sum(1 for node in nodes.values() if node.is_file())
+            folder_count = sum(1 for node in nodes.values() if node.is_folder())
+            
+            return {
+                'quota': quota,
+                'file_count': file_count,
+                'folder_count': folder_count,
+                'total_nodes': len(nodes),
+            }
+        except Exception as e:
+            return {'error': str(e)}
+    
+    def get_network_stats(self) -> Dict[str, Any]:
+        """Get network performance statistics."""
+        return get_network_performance_stats()
+    
+    def clear_cache(self) -> None:
+        """Clear all caches."""
+        clear_network_cache()
+        fs_tree.clear()
+    
+    def close(self) -> None:
+        """Close client and clean up resources."""
+        if is_logged_in():
+            self.logout()
+        
+        _api_session.close()
+        self.logger.info("MPLClient closed")
+
+
+# ==============================================
+# === CONVENIENCE FUNCTIONS ===
+# ==============================================
+
+def create_client(auto_login: bool = True) -> MPLClient:
+    """
+    Create a new Mega client instance.
+    
+    Args:
+        auto_login: If True, attempt to restore saved session
+        
+    Returns:
+        Configured MPLClient instance
+    """
+    return MPLClient(auto_login=auto_login)
+
+
+def create_enhanced_client(auto_login: bool = True,
+                          max_requests_per_second: float = 10.0) -> MPLClient:
+    """
+    Create a Mega client with enhanced features.
+    
+    Args:
+        auto_login: Whether to attempt automatic login
+        max_requests_per_second: Rate limiting for API requests
+        
+    Returns:
+        Enhanced MPLClient instance
+    """
+    client = MPLClient(auto_login=auto_login)
+    
+    # Configure rate limiting
+    global _rate_limiter
+    _rate_limiter = RateLimiter(requests_per_second=max_requests_per_second)
+    
+    return client
+
+
+# ==============================================
+# === PACKAGE EXPORTS ===
+# ==============================================
+
+def get_version_info():
+    """Get detailed version information."""
+    return {
+        'version': __version__,
+        'author': __author__,
+        'status': __status__,
+        'features': {
+            'authentication': True,
+            'filesystem': True,
+            'events': True,
+            'utilities': True,
+        }
+    }
+
+
+# Define what gets imported with "from mpl_merged import *"
+__all__ = [
+    # Version info
+    '__version__',
+    '__author__', 
+    '__license__',
+    
+    # Main classes
+    'MPLClient',
+    'MegaNode',
+    'create_client',
+    'create_enhanced_client',
+    
+    # Core functions
+    'login',
+    'logout',
+    'register',
+    'verify_email',
+    'change_password',
+    'is_logged_in',
+    'get_current_user',
+    'get_user_info',
+    'get_user_quota',
+    
+    # Filesystem functions
+    'refresh_filesystem',
+    'list_folder',
+    'create_folder',
+    'delete_node',
+    'move_node',
+    'rename_node',
+    'upload_file',
+    'download_file',
+    'get_node_by_path',
+    'search_nodes_by_name',
+    
+    # Utility functions
+    'format_size',
+    'detect_file_type',
+    'is_image_file',
+    'is_video_file',
+    'is_audio_file',
+    
+    # Errors and validation
+    'RequestError',
+    'ValidationError',
+    'validate_email',
+    'validate_password',
+    
+    # Cryptographic utilities
+    'aes_cbc_encrypt',
+    'aes_cbc_decrypt',
+    'derive_key',
+    'generate_random_key',
+    'base64_url_encode',
+    'base64_url_decode',
+    'hash_password',
+    
+    # Utilities
+    'get_version_info',
+]
+
+# Configure basic logging if needed
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+logger.info(f"MegaPythonLibrary v{__version__} (merged) fully loaded - {len(__all__)} exports available")
+logger.info("Ready for use! Try: client = MPLClient(); client.login('email', 'password')")
