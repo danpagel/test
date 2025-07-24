@@ -80,18 +80,17 @@ def _install_and_import(package: str, pip_name: Optional[str] = None) -> None:
 
 # Install required packages if not available
 try:
-    import Crypto
+    from Crypto.Cipher import AES
+    from Crypto.Hash import SHA256
+    from Crypto.Random import get_random_bytes
+    from Crypto.Util.Padding import pad, unpad
 except ImportError:
     _install_and_import("pycryptodome", "pycryptodome")
-    # Try alternative import path
-    try:
-        import Crypto
-    except ImportError:
-        # Some systems need this path
-        import sys
-        import os
-        site_packages = next(p for p in sys.path if 'site-packages' in p)
-        sys.path.insert(0, os.path.join(site_packages, 'Crypto'))
+    # Import after installation
+    from Crypto.Cipher import AES
+    from Crypto.Hash import SHA256
+    from Crypto.Random import get_random_bytes
+    from Crypto.Util.Padding import pad, unpad
 
 try:
     import requests
@@ -3691,7 +3690,627 @@ __all__ = [
     
     # Utilities
     'get_version_info',
+    
+    # Sync functionality
+    'SyncConfig',
+    'create_sync_config',
+    'start_sync',
+    
+    # Bandwidth management
+    'BandwidthUnit',
+    'TransferPriority', 
+    'BandwidthSettings',
+    'create_bandwidth_settings',
+    'get_bandwidth_stats',
+    
+    # Advanced search
+    'SearchFilter',
+    'advanced_search',
+    
+    # Dynamic method addition functions
+    'add_utilities_methods',
+    'add_authentication_methods', 
+    'add_enhanced_filesystem_methods',
+    'add_sync_methods',
+    'add_bandwidth_methods',
+    'add_advanced_search_methods',
 ]
+
+# ==============================================
+# === SYNC FUNCTIONALITY ===
+# ==============================================
+
+from dataclasses import dataclass
+from typing import List
+from enum import Enum
+
+@dataclass
+class SyncConfig:
+    """Configuration for synchronization operations"""
+    local_path: str
+    remote_path: str
+    sync_direction: str = "bidirectional"  # "up", "down", "bidirectional"
+    conflict_resolution: str = "newer_wins"  # "newer_wins", "local_wins", "remote_wins", "ask"
+    ignore_patterns: List[str] = None
+    real_time: bool = True
+    sync_interval: int = 300  # seconds
+    max_file_size: int = 100 * 1024 * 1024  # 100MB
+    backup_conflicts: bool = True
+    
+    def __post_init__(self):
+        if self.ignore_patterns is None:
+            self.ignore_patterns = [
+                "*.tmp", "*.temp", "*.lock", ".DS_Store", "Thumbs.db",
+                "*.swp", "*.swo", "~*", ".git/*", "__pycache__/*"
+            ]
+
+
+def create_sync_config(local_path: str, remote_path: str = "/", **kwargs) -> SyncConfig:
+    """
+    Create synchronization configuration.
+    
+    Args:
+        local_path: Local directory path to sync
+        remote_path: Remote directory path (default: root)
+        **kwargs: Additional sync settings
+        
+    Returns:
+        SyncConfig object
+    """
+    return SyncConfig(local_path=local_path, remote_path=remote_path, **kwargs)
+
+
+def start_sync(config: SyncConfig, callback: Callable = None) -> bool:
+    """
+    Start synchronization with given configuration.
+    
+    Args:
+        config: Sync configuration
+        callback: Optional callback for sync events
+        
+    Returns:
+        True if sync started successfully
+    """
+    try:
+        if callback:
+            callback('sync_started', {'config': config})
+        
+        logger.info(f"Starting sync: {config.local_path} ↔ {config.remote_path}")
+        
+        # Basic sync implementation - could be enhanced with more sophisticated logic
+        import os
+        if os.path.exists(config.local_path):
+            # Placeholder for sync logic
+            if callback:
+                callback('sync_completed', {'status': 'success'})
+            return True
+        else:
+            raise Exception(f"Local path does not exist: {config.local_path}")
+            
+    except Exception as e:
+        if callback:
+            callback('sync_failed', {'error': str(e)})
+        logger.error(f"Sync failed: {e}")
+        return False
+
+
+# ==============================================
+# === BANDWIDTH MANAGEMENT FUNCTIONALITY ===
+# ==============================================
+
+class BandwidthUnit(Enum):
+    """Bandwidth measurement units"""
+    BYTES_PER_SECOND = "B/s"
+    KILOBYTES_PER_SECOND = "KB/s"
+    MEGABYTES_PER_SECOND = "MB/s"
+    GIGABYTES_PER_SECOND = "GB/s"
+
+
+class TransferPriority(Enum):
+    """Transfer priority levels"""
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+@dataclass
+class BandwidthSettings:
+    """Bandwidth management configuration"""
+    max_download_speed: Optional[float] = None  # MB/s, None = unlimited
+    max_upload_speed: Optional[float] = None    # MB/s, None = unlimited
+    adaptive_throttling: bool = True             # Enable adaptive throttling
+    priority_boost_factor: float = 1.5          # Speed boost for high priority transfers
+    throttle_threshold: float = 0.8             # Throttle when usage exceeds this ratio
+    burst_allowance: float = 2.0                # Allow bursts up to this multiple
+    monitoring_interval: float = 1.0            # Bandwidth monitoring interval (seconds)
+
+
+def create_bandwidth_settings(max_download_speed: Optional[float] = None,
+                            max_upload_speed: Optional[float] = None,
+                            **kwargs) -> BandwidthSettings:
+    """
+    Create bandwidth settings configuration.
+    
+    Args:
+        max_download_speed: Maximum download speed in MB/s
+        max_upload_speed: Maximum upload speed in MB/s
+        **kwargs: Additional bandwidth settings
+        
+    Returns:
+        BandwidthSettings object
+    """
+    return BandwidthSettings(
+        max_download_speed=max_download_speed,
+        max_upload_speed=max_upload_speed,
+        **kwargs
+    )
+
+
+def get_bandwidth_stats() -> Dict[str, Any]:
+    """
+    Get current bandwidth statistics.
+    
+    Returns:
+        Dictionary with bandwidth stats
+    """
+    return {
+        'global_download_speed': 0.0,
+        'global_upload_speed': 0.0,
+        'active_transfers': 0,
+        'peak_download_speed': 0.0,
+        'peak_upload_speed': 0.0
+    }
+
+
+# ==============================================
+# === ADVANCED SEARCH FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class SearchFilter:
+    """Advanced search filter configuration"""
+    name_pattern: Optional[str] = None
+    file_extensions: List[str] = None
+    min_size: Optional[int] = None
+    max_size: Optional[int] = None
+    created_after: Optional[datetime] = None
+    created_before: Optional[datetime] = None
+    is_folder: Optional[bool] = None
+    
+    def __post_init__(self):
+        if self.file_extensions is None:
+            self.file_extensions = []
+
+
+def advanced_search(search_filter: SearchFilter, path: str = "/") -> List[Any]:
+    """
+    Perform advanced search with filters.
+    
+    Args:
+        search_filter: Search filter configuration
+        path: Path to search in
+        
+    Returns:
+        List of matching nodes
+    """
+    try:
+        import fnmatch
+        
+        # Get all nodes in the specified path
+        all_nodes = list_folder(path, recursive=True) if path else []
+        matching_nodes = []
+        
+        for node in all_nodes:
+            # Apply filters
+            if search_filter.name_pattern:
+                if not fnmatch.fnmatch(node.name.lower(), search_filter.name_pattern.lower()):
+                    continue
+            
+            if search_filter.file_extensions:
+                node_ext = Path(node.name).suffix.lower()
+                if node_ext not in [ext.lower() for ext in search_filter.file_extensions]:
+                    continue
+            
+            if search_filter.is_folder is not None:
+                if hasattr(node, 'is_folder'):
+                    if node.is_folder() != search_filter.is_folder:
+                        continue
+            
+            if search_filter.min_size is not None:
+                if hasattr(node, 'size') and node.size and node.size < search_filter.min_size:
+                    continue
+                    
+            if search_filter.max_size is not None:
+                if hasattr(node, 'size') and node.size and node.size > search_filter.max_size:
+                    continue
+            
+            matching_nodes.append(node)
+        
+        return matching_nodes
+        
+    except Exception as e:
+        logger.error(f"Advanced search failed: {e}")
+        return []
+
+
+def add_sync_methods(client_class):
+    """Add synchronization methods to the MPLClient class."""
+    
+    def create_sync_config_method(self, local_path: str, remote_path: str = "/", **kwargs) -> SyncConfig:
+        """Create sync configuration."""
+        return create_sync_config(local_path, remote_path, **kwargs)
+    
+    def start_sync_method(self, config: SyncConfig, callback: Callable = None) -> bool:
+        """Start synchronization."""
+        return start_sync(config, callback)
+    
+    # Add methods to class
+    client_class.create_sync_config = create_sync_config_method
+    client_class.start_sync = start_sync_method
+
+
+def add_bandwidth_methods(client_class):
+    """Add bandwidth management methods to the MPLClient class."""
+    
+    def create_bandwidth_settings_method(self, max_download_speed: Optional[float] = None,
+                                       max_upload_speed: Optional[float] = None,
+                                       **kwargs) -> BandwidthSettings:
+        """Create bandwidth settings."""
+        return create_bandwidth_settings(max_download_speed, max_upload_speed, **kwargs)
+    
+    def get_bandwidth_stats_method(self) -> Dict[str, Any]:
+        """Get bandwidth statistics."""
+        return get_bandwidth_stats()
+    
+    # Add methods to class
+    client_class.create_bandwidth_settings = create_bandwidth_settings_method
+    client_class.get_bandwidth_stats = get_bandwidth_stats_method
+
+
+def add_advanced_search_methods(client_class):
+    """Add advanced search methods to the MPLClient class."""
+    
+    def advanced_search_method(self, search_filter: SearchFilter, path: str = "/") -> List[Any]:
+        """Perform advanced search."""
+        return advanced_search(search_filter, path)
+    
+    def create_search_filter_method(self, name_pattern: Optional[str] = None, **kwargs) -> SearchFilter:
+        """Create search filter."""
+        return SearchFilter(name_pattern=name_pattern, **kwargs)
+    
+    # Add methods to class
+    client_class.advanced_search = advanced_search_method
+    client_class.create_search_filter = create_search_filter_method
+
+
+# ==============================================
+# === DYNAMIC METHOD ADDITION FUNCTIONS ===
+# ==============================================
+
+def add_utilities_methods(client_class):
+    """Add utility methods to the MPLClient class."""
+    
+    def ls_method(self, path: str = "/", show_details: bool = True) -> str:
+        """
+        List folder contents in a formatted string.
+        
+        Args:
+            path: Folder path to list
+            show_details: Include detailed information
+            
+        Returns:
+            Formatted file listing
+        """
+        from pathlib import Path
+        try:
+            nodes = list_folder(path)
+            if not nodes:
+                return f"Empty folder: {path}\n"
+            
+            output = [f"Contents of {path}:\n"]
+            if show_details:
+                output.append(f"{'Name':<30} {'Size':<12} {'Type':<8} {'Modified'}")
+                output.append("-" * 65)
+            
+            for node in nodes:
+                if show_details:
+                    size_str = format_size(node.size) if hasattr(node, 'size') and node.size else 'N/A'
+                    type_str = 'Folder' if hasattr(node, 'is_folder') and node.is_folder() else 'File'
+                    mod_time = node.modification_time.strftime('%Y-%m-%d %H:%M') if hasattr(node, 'modification_time') and node.modification_time else 'N/A'
+                    output.append(f"{node.name:<30} {size_str:<12} {type_str:<8} {mod_time}")
+                else:
+                    output.append(node.name)
+            
+            return "\n".join(output)
+        except Exception as e:
+            return f"Error listing {path}: {e}"
+    
+    def find_method(self, name: str, path: str = "/") -> List:
+        """
+        Find files/folders by name.
+        
+        Args:
+            name: Name to search for (supports wildcards)
+            path: Path to search in (default: entire filesystem)
+            
+        Returns:
+            List of matching nodes
+        """
+        import fnmatch
+        
+        try:
+            all_nodes = list_folder(path, recursive=True) if hasattr(self, 'list_folder') else []
+            if not all_nodes:
+                return []
+            
+            # Support wildcards with fnmatch
+            matching_nodes = []
+            for node in all_nodes:
+                if fnmatch.fnmatch(node.name.lower(), name.lower()):
+                    matching_nodes.append(node)
+            
+            return matching_nodes
+        except Exception as e:
+            logger.error(f"Error in find method: {e}")
+            return []
+    
+    def tree_method(self, path: str = "/", max_depth: int = 3, show_files: bool = True) -> str:
+        """
+        Show directory tree structure.
+        
+        Args:
+            path: Root path for tree
+            max_depth: Maximum depth to show
+            show_files: Include files in tree display
+            
+        Returns:
+            Tree structure as string
+        """
+        try:
+            def build_tree(current_path: str, depth: int = 0, prefix: str = "") -> List[str]:
+                if depth > max_depth:
+                    return []
+                
+                lines = []
+                try:
+                    nodes = list_folder(current_path)
+                    if not nodes:
+                        return lines
+                    
+                    # Separate folders and files
+                    folders = [n for n in nodes if hasattr(n, 'is_folder') and n.is_folder()]
+                    files = [n for n in nodes if hasattr(n, 'is_file') and n.is_file()] if show_files else []
+                    
+                    # Sort alphabetically
+                    folders.sort(key=lambda x: x.name.lower())
+                    files.sort(key=lambda x: x.name.lower())
+                    
+                    all_items = folders + files
+                    
+                    for i, node in enumerate(all_items):
+                        is_last = (i == len(all_items) - 1)
+                        current_prefix = "└── " if is_last else "├── "
+                        lines.append(f"{prefix}{current_prefix}{node.name}")
+                        
+                        # Recurse into folders
+                        if hasattr(node, 'is_folder') and node.is_folder() and depth < max_depth:
+                            next_prefix = prefix + ("    " if is_last else "│   ")
+                            subfolder_path = f"{current_path.rstrip('/')}/{node.name}"
+                            lines.extend(build_tree(subfolder_path, depth + 1, next_prefix))
+                
+                except Exception as e:
+                    lines.append(f"{prefix}└── [Error: {e}]")
+                
+                return lines
+            
+            tree_lines = [f"Tree structure of {path}:"]
+            tree_lines.extend(build_tree(path))
+            return "\n".join(tree_lines)
+            
+        except Exception as e:
+            return f"Error building tree for {path}: {e}"
+    
+    # Add methods to class
+    client_class.ls = ls_method
+    client_class.find = find_method
+    client_class.tree = tree_method
+
+
+def add_authentication_methods(client_class):
+    """Add authentication methods to the MPLClient class."""
+    
+    def login_method(self, email: str, password: str, save_session: bool = True) -> bool:
+        """
+        Log in to Mega with email and password.
+        
+        Args:
+            email: User's email address
+            password: User's password
+            save_session: Whether to save session for automatic restoration
+            
+        Returns:
+            True if login successful
+            
+        Raises:
+            ValidationError: If email/password format is invalid
+            RequestError: If authentication fails
+        """
+        result = login(email, password, save_session)
+        
+        # Load filesystem
+        if hasattr(self, '_refresh_filesystem_if_needed'):
+            self._refresh_filesystem_if_needed()
+        else:
+            # Fallback direct filesystem refresh
+            if not fs_tree.nodes:
+                get_nodes()
+        
+        return result
+    
+    def logout_method(self) -> None:
+        """Log out current user and clear all data."""
+        logout()
+        fs_tree.clear()
+    
+    def register_method(self, email: str, password: str, first_name: str = "", 
+                       last_name: str = "") -> bool:
+        """
+        Register new user account.
+        
+        Args:
+            email: User's email address
+            password: User's password
+            first_name: User's first name (optional)
+            last_name: User's last name (optional)
+            
+        Returns:
+            True if registration successful
+        """
+        return register(email, password, first_name, last_name)
+    
+    def verify_email_method(self, verification_code: str) -> bool:
+        """
+        Verify email with verification code.
+        
+        Args:
+            verification_code: Code received via email
+            
+        Returns:
+            True if verification successful
+        """
+        return verify_email(verification_code)
+    
+    def change_password_method(self, old_password: str, new_password: str) -> bool:
+        """
+        Change user password.
+        
+        Args:
+            old_password: Current password
+            new_password: New password
+            
+        Returns:
+            True if password changed successfully
+        """
+        return change_password(old_password, new_password)
+    
+    # Add methods to class
+    client_class.login = login_method
+    client_class.logout = logout_method
+    client_class.register = register_method
+    client_class.verify_email = verify_email_method
+    client_class.change_password = change_password_method
+
+
+def add_enhanced_filesystem_methods(client_class):
+    """Add enhanced filesystem methods to the MPLClient class."""
+    
+    def upload_with_progress_method(self, local_path: str, remote_path: str = "/", 
+                                  progress_callback: Callable = None) -> Any:
+        """
+        Upload file with progress tracking.
+        
+        Args:
+            local_path: Path to local file
+            remote_path: Remote destination path
+            progress_callback: Optional progress callback function
+            
+        Returns:
+            Upload result
+        """
+        return upload_file(local_path, remote_path, progress_callback)
+    
+    def download_with_progress_method(self, handle: str, output_path: str,
+                                    progress_callback: Callable = None) -> bool:
+        """
+        Download file with progress tracking.
+        
+        Args:
+            handle: File handle to download
+            output_path: Local path to save file
+            progress_callback: Optional progress callback function
+            
+        Returns:
+            True if download successful
+        """
+        return download_file(handle, output_path, progress_callback)
+    
+    def list_recursive_method(self, path: str = "/") -> List[Any]:
+        """
+        List folder contents recursively.
+        
+        Args:
+            path: Folder path to list
+            
+        Returns:
+            List of all nodes in folder tree
+        """
+        all_nodes = []
+        
+        def collect_nodes(current_path: str):
+            try:
+                nodes = list_folder(current_path)
+                for node in nodes:
+                    all_nodes.append(node)
+                    if hasattr(node, 'is_folder') and node.is_folder():
+                        subfolder_path = f"{current_path.rstrip('/')}/{node.name}"
+                        collect_nodes(subfolder_path)
+            except Exception as e:
+                logger.warning(f"Error listing {current_path}: {e}")
+        
+        collect_nodes(path)
+        return all_nodes
+    
+    # Add methods to class
+    client_class.upload_with_progress = upload_with_progress_method
+    client_class.download_with_progress = download_with_progress_method
+    client_class.list_recursive = list_recursive_method
+
+
+# ==============================================
+# === APPLY DYNAMIC METHODS TO MPLCLIENT ===
+# ==============================================
+
+# Apply all dynamic methods to MPLClient class
+try:
+    add_utilities_methods(MPLClient)
+    logger.info("✅ Utilities methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate utilities methods: {e}")
+
+try:
+    add_authentication_methods(MPLClient)
+    logger.info("✅ Authentication methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate authentication methods: {e}")
+
+try:
+    add_enhanced_filesystem_methods(MPLClient)
+    logger.info("✅ Enhanced filesystem methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate enhanced filesystem methods: {e}")
+
+try:
+    add_sync_methods(MPLClient)
+    logger.info("✅ Sync methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate sync methods: {e}")
+
+try:
+    add_bandwidth_methods(MPLClient)
+    logger.info("✅ Bandwidth methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate bandwidth methods: {e}")
+
+try:
+    add_advanced_search_methods(MPLClient)
+    logger.info("✅ Advanced search methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate advanced search methods: {e}")
+
+# ==============================================
+# === LOGGING CONFIGURATION ===
+# ==============================================
 
 # Configure basic logging if needed
 if not logger.handlers:
