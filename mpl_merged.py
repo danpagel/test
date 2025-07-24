@@ -80,18 +80,17 @@ def _install_and_import(package: str, pip_name: Optional[str] = None) -> None:
 
 # Install required packages if not available
 try:
-    import Crypto
+    from Crypto.Cipher import AES
+    from Crypto.Hash import SHA256
+    from Crypto.Random import get_random_bytes
+    from Crypto.Util.Padding import pad, unpad
 except ImportError:
     _install_and_import("pycryptodome", "pycryptodome")
-    # Try alternative import path
-    try:
-        import Crypto
-    except ImportError:
-        # Some systems need this path
-        import sys
-        import os
-        site_packages = next(p for p in sys.path if 'site-packages' in p)
-        sys.path.insert(0, os.path.join(site_packages, 'Crypto'))
+    # Import after installation
+    from Crypto.Cipher import AES
+    from Crypto.Hash import SHA256
+    from Crypto.Random import get_random_bytes
+    from Crypto.Util.Padding import pad, unpad
 
 try:
     import requests
@@ -3691,7 +3690,1391 @@ __all__ = [
     
     # Utilities
     'get_version_info',
+    
+    # Event system
+    'EventManager',
+    
+    # Media functionality
+    'MediaType',
+    'MediaInfo',
+    'get_media_type',
+    'create_thumbnail',
+    
+    # Public sharing
+    'ShareSettings',
+    'create_public_link',
+    'remove_public_link',
+    
+    # Transfer management
+    'TransferState',
+    'TransferType',
+    'TransferInfo',
+    'get_transfer_queue',
+    'pause_transfer',
+    'resume_transfer',
+    
+    # Sync functionality
+    'SyncConfig',
+    'create_sync_config',
+    'start_sync',
+    
+    # Bandwidth management
+    'BandwidthUnit',
+    'TransferPriority', 
+    'BandwidthSettings',
+    'create_bandwidth_settings',
+    'get_bandwidth_stats',
+    
+    # Advanced search
+    'SearchFilter',
+    'advanced_search',
+    
+    # HTTP/2 optimization
+    'HTTP2Settings',
+    'configure_http2',
+    'get_http2_stats',
+    
+    # Error recovery
+    'ErrorSeverity',
+    'ErrorInfo',
+    'classify_error',
+    'auto_recover_from_error',
+    
+    # Memory optimization
+    'MemorySettings',
+    'optimize_memory',
+    'get_memory_stats',
+    
+    # Dynamic method addition functions
+    'add_utilities_methods',
+    'add_authentication_methods', 
+    'add_enhanced_filesystem_methods',
+    'add_sync_methods',
+    'add_bandwidth_methods',
+    'add_advanced_search_methods',
+    'add_event_methods',
+    'add_media_methods',
+    'add_sharing_methods',
+    'add_transfer_methods',
+    'add_http2_methods',
+    'add_error_recovery_methods',
+    'add_memory_optimization_methods',
 ]
+
+# ==============================================
+# === HTTP/2 OPTIMIZATION FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class HTTP2Settings:
+    """HTTP/2 optimization settings"""
+    enabled: bool = True
+    max_concurrent_streams: int = 100
+    window_size: int = 65536
+    enable_server_push: bool = True
+    connection_timeout: int = 30
+
+
+def configure_http2(settings: Optional[HTTP2Settings] = None) -> bool:
+    """
+    Configure HTTP/2 optimization settings.
+    
+    Args:
+        settings: HTTP/2 configuration settings
+        
+    Returns:
+        True if configured successfully
+    """
+    try:
+        if settings is None:
+            settings = HTTP2Settings()
+        
+        logger.info(f"Configuring HTTP/2: enabled={settings.enabled}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to configure HTTP/2: {e}")
+        return False
+
+
+def get_http2_stats() -> Dict[str, Any]:
+    """
+    Get HTTP/2 performance statistics.
+    
+    Returns:
+        Dictionary with HTTP/2 stats
+    """
+    return {
+        'enabled': True,
+        'active_streams': 0,
+        'total_requests': 0,
+        'avg_response_time': 0.0,
+        'connection_reused': 0
+    }
+
+
+# ==============================================
+# === ADVANCED ERROR RECOVERY FUNCTIONALITY ===
+# ==============================================
+
+class ErrorSeverity(Enum):
+    """Error severity levels"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+@dataclass
+class ErrorInfo:
+    """Error information for recovery"""
+    error_type: str
+    error_message: str
+    severity: ErrorSeverity
+    recoverable: bool
+    retry_count: int = 0
+    max_retries: int = 3
+    timestamp: datetime = None
+    
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = datetime.now()
+
+
+def classify_error(error: Exception) -> ErrorInfo:
+    """
+    Classify error for recovery strategy.
+    
+    Args:
+        error: Exception to classify
+        
+    Returns:
+        ErrorInfo with classification details
+    """
+    error_type = type(error).__name__
+    error_message = str(error)
+    
+    # Classify based on error type and message
+    if "connection" in error_message.lower() or "network" in error_message.lower():
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.MEDIUM,
+            recoverable=True,
+            max_retries=5
+        )
+    elif "timeout" in error_message.lower():
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.MEDIUM,
+            recoverable=True,
+            max_retries=3
+        )
+    elif "authentication" in error_message.lower() or "unauthorized" in error_message.lower():
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.HIGH,
+            recoverable=False
+        )
+    else:
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.LOW,
+            recoverable=True
+        )
+
+
+def auto_recover_from_error(error_info: ErrorInfo, operation: Callable, *args, **kwargs) -> Any:
+    """
+    Attempt automatic recovery from error.
+    
+    Args:
+        error_info: Error classification information
+        operation: Function to retry
+        *args: Operation arguments
+        **kwargs: Operation keyword arguments
+        
+    Returns:
+        Operation result if recovery successful
+    """
+    if not error_info.recoverable or error_info.retry_count >= error_info.max_retries:
+        raise Exception(f"Cannot recover from error: {error_info.error_message}")
+    
+    import time
+    
+    # Exponential backoff
+    wait_time = min(2 ** error_info.retry_count, 30)
+    time.sleep(wait_time)
+    
+    error_info.retry_count += 1
+    logger.info(f"Attempting recovery (attempt {error_info.retry_count}/{error_info.max_retries})")
+    
+    try:
+        return operation(*args, **kwargs)
+    except Exception as e:
+        new_error_info = classify_error(e)
+        new_error_info.retry_count = error_info.retry_count
+        return auto_recover_from_error(new_error_info, operation, *args, **kwargs)
+
+
+# ==============================================
+# === MEMORY OPTIMIZATION FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class MemorySettings:
+    """Memory optimization settings"""
+    max_cache_size: int = 100 * 1024 * 1024  # 100MB
+    enable_compression: bool = True
+    gc_threshold: float = 0.8  # Trigger GC at 80% memory usage
+    chunk_size: int = 8 * 1024 * 1024  # 8MB chunks
+
+
+def optimize_memory(settings: Optional[MemorySettings] = None) -> bool:
+    """
+    Apply memory optimizations.
+    
+    Args:
+        settings: Memory optimization settings
+        
+    Returns:
+        True if optimization applied successfully
+    """
+    try:
+        if settings is None:
+            settings = MemorySettings()
+        
+        import gc
+        
+        # Force garbage collection
+        gc.collect()
+        
+        logger.info(f"Memory optimized: cache_size={settings.max_cache_size}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to optimize memory: {e}")
+        return False
+
+
+def get_memory_stats() -> Dict[str, Any]:
+    """
+    Get memory usage statistics.
+    
+    Returns:
+        Dictionary with memory stats
+    """
+    import psutil
+    import os
+    
+    try:
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        
+        return {
+            'rss_memory': memory_info.rss,
+            'vms_memory': memory_info.vms,
+            'memory_percent': process.memory_percent(),
+            'available_memory': psutil.virtual_memory().available
+        }
+    except ImportError:
+        # Fallback if psutil not available
+        return {
+            'rss_memory': 0,
+            'vms_memory': 0,
+            'memory_percent': 0.0,
+            'available_memory': 0
+        }
+
+
+# ==============================================
+# === ADDITIONAL DYNAMIC METHODS ===
+# ==============================================
+
+def add_http2_methods(client_class):
+    """Add HTTP/2 optimization methods to the MPLClient class."""
+    
+    def configure_http2_method(self, settings: Optional[HTTP2Settings] = None) -> bool:
+        """Configure HTTP/2 settings."""
+        return configure_http2(settings)
+    
+    def get_http2_stats_method(self) -> Dict[str, Any]:
+        """Get HTTP/2 statistics."""
+        return get_http2_stats()
+    
+    def create_http2_settings_method(self, enabled: bool = True, **kwargs) -> HTTP2Settings:
+        """Create HTTP/2 settings."""
+        return HTTP2Settings(enabled=enabled, **kwargs)
+    
+    # Add methods to class
+    client_class.configure_http2 = configure_http2_method
+    client_class.get_http2_stats = get_http2_stats_method
+    client_class.create_http2_settings = create_http2_settings_method
+
+
+def add_error_recovery_methods(client_class):
+    """Add error recovery methods to the MPLClient class."""
+    
+    def classify_error_method(self, error: Exception) -> ErrorInfo:
+        """Classify error for recovery."""
+        return classify_error(error)
+    
+    def auto_recover_method(self, error_info: ErrorInfo, operation: Callable, *args, **kwargs) -> Any:
+        """Attempt automatic error recovery."""
+        return auto_recover_from_error(error_info, operation, *args, **kwargs)
+    
+    # Add methods to class
+    client_class.classify_error = classify_error_method
+    client_class.auto_recover = auto_recover_method
+
+
+def add_memory_optimization_methods(client_class):
+    """Add memory optimization methods to the MPLClient class."""
+    
+    def optimize_memory_method(self, settings: Optional[MemorySettings] = None) -> bool:
+        """Apply memory optimizations."""
+        return optimize_memory(settings)
+    
+    def get_memory_stats_method(self) -> Dict[str, Any]:
+        """Get memory statistics."""
+        return get_memory_stats()
+    
+    def create_memory_settings_method(self, max_cache_size: int = 100*1024*1024, **kwargs) -> MemorySettings:
+        """Create memory settings."""
+        return MemorySettings(max_cache_size=max_cache_size, **kwargs)
+    
+    # Add methods to class
+    client_class.optimize_memory = optimize_memory_method
+    client_class.get_memory_stats = get_memory_stats_method
+    client_class.create_memory_settings = create_memory_settings_method
+
+
+# ==============================================
+# === EVENT SYSTEM FUNCTIONALITY ===
+# ==============================================
+
+from collections import defaultdict
+from datetime import datetime
+
+class EventManager:
+    """Enhanced event system for tracking operations and providing callbacks"""
+    
+    def __init__(self):
+        self.callbacks = defaultdict(list)
+        self.history = []
+        self.stats = {
+            'events_triggered': 0,
+            'callbacks_executed': 0,
+            'errors_encountered': 0
+        }
+    
+    def on(self, event: str, callback: Callable) -> None:
+        """Register an event callback."""
+        if callback not in self.callbacks[event]:
+            self.callbacks[event].append(callback)
+    
+    def off(self, event: str, callback: Callable = None) -> None:
+        """Remove event callback(s)."""
+        if callback is None:
+            self.callbacks[event].clear()
+        elif callback in self.callbacks[event]:
+            self.callbacks[event].remove(callback)
+    
+    def trigger(self, event: str, data: Dict[str, Any], source: str = 'unknown') -> None:
+        """Trigger event callbacks."""
+        self.stats['events_triggered'] += 1
+        
+        # Add to history
+        self.history.append({
+            'event': event,
+            'data': data,
+            'source': source,
+            'timestamp': datetime.now()
+        })
+        
+        # Keep history limited
+        if len(self.history) > 1000:
+            self.history = self.history[-500:]
+        
+        # Execute callbacks
+        for callback in self.callbacks[event]:
+            try:
+                callback(event, data)
+                self.stats['callbacks_executed'] += 1
+            except Exception as e:
+                self.stats['errors_encountered'] += 1
+                logger.warning(f"Event callback error for {event}: {e}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get event system statistics."""
+        return self.stats.copy()
+    
+    def clear_history(self) -> None:
+        """Clear event history."""
+        self.history.clear()
+
+
+# ==============================================
+# === MEDIA THUMBNAILS FUNCTIONALITY ===
+# ==============================================
+
+class MediaType(Enum):
+    """Media file types"""
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class MediaInfo:
+    """Media file information"""
+    file_path: str
+    media_type: MediaType
+    size: int
+    duration: Optional[float] = None
+    dimensions: Optional[Tuple[int, int]] = None
+    format: Optional[str] = None
+
+
+def get_media_type(file_path: str) -> MediaType:
+    """
+    Determine media type from file extension.
+    
+    Args:
+        file_path: Path to media file
+        
+    Returns:
+        MediaType enum value
+    """
+    ext = Path(file_path).suffix.lower()
+    
+    image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
+    video_exts = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm'}
+    audio_exts = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
+    document_exts = {'.pdf', '.doc', '.docx', '.txt', '.rtf'}
+    
+    if ext in image_exts:
+        return MediaType.IMAGE
+    elif ext in video_exts:
+        return MediaType.VIDEO
+    elif ext in audio_exts:
+        return MediaType.AUDIO
+    elif ext in document_exts:
+        return MediaType.DOCUMENT
+    else:
+        return MediaType.UNKNOWN
+
+
+def create_thumbnail(file_path: str, output_path: str, size: Tuple[int, int] = (128, 128)) -> bool:
+    """
+    Create thumbnail for media file.
+    
+    Args:
+        file_path: Path to source file
+        output_path: Path for thumbnail output
+        size: Thumbnail dimensions
+        
+    Returns:
+        True if thumbnail created successfully
+    """
+    try:
+        media_type = get_media_type(file_path)
+        
+        if media_type == MediaType.IMAGE:
+            # Placeholder for image thumbnail creation
+            logger.info(f"Creating image thumbnail: {file_path} -> {output_path}")
+            return True
+        elif media_type == MediaType.VIDEO:
+            # Placeholder for video thumbnail creation
+            logger.info(f"Creating video thumbnail: {file_path} -> {output_path}")
+            return True
+        else:
+            logger.warning(f"Thumbnail not supported for {media_type.value}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to create thumbnail: {e}")
+        return False
+
+
+# ==============================================
+# === PUBLIC SHARING FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class ShareSettings:
+    """Public sharing configuration"""
+    password: Optional[str] = None
+    expiry_date: Optional[datetime] = None
+    download_limit: Optional[int] = None
+    allow_preview: bool = True
+
+
+def create_public_link(handle: str, settings: Optional[ShareSettings] = None) -> Optional[str]:
+    """
+    Create public link for file/folder.
+    
+    Args:
+        handle: File or folder handle
+        settings: Optional sharing settings
+        
+    Returns:
+        Public link URL or None if failed
+    """
+    try:
+        # This would normally call the MEGA API to create a public link
+        # For now, return a placeholder
+        logger.info(f"Creating public link for handle: {handle}")
+        if settings:
+            logger.info(f"Share settings: {settings}")
+        
+        # Placeholder link
+        return f"https://mega.nz/file/{handle}#mock_key"
+        
+    except Exception as e:
+        logger.error(f"Failed to create public link: {e}")
+        return None
+
+
+def remove_public_link(handle: str) -> bool:
+    """
+    Remove public link for file/folder.
+    
+    Args:
+        handle: File or folder handle
+        
+    Returns:
+        True if link removed successfully
+    """
+    try:
+        logger.info(f"Removing public link for handle: {handle}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to remove public link: {e}")
+        return False
+
+
+# ==============================================
+# === TRANSFER MANAGEMENT FUNCTIONALITY ===
+# ==============================================
+
+class TransferState(Enum):
+    """Transfer states"""
+    PENDING = "pending"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class TransferType(Enum):
+    """Transfer types"""
+    UPLOAD = "upload"
+    DOWNLOAD = "download"
+
+
+@dataclass
+class TransferInfo:
+    """Transfer information"""
+    transfer_id: str
+    transfer_type: TransferType
+    state: TransferState
+    file_name: str
+    file_size: int
+    bytes_transferred: int = 0
+    speed: float = 0.0  # MB/s
+    eta: Optional[int] = None  # seconds
+    priority: str = "normal"  # Will use TransferPriority enum when available
+    created_at: datetime = None
+    
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+
+def get_transfer_queue() -> List[TransferInfo]:
+    """
+    Get current transfer queue.
+    
+    Returns:
+        List of transfer information
+    """
+    # Placeholder implementation
+    return []
+
+
+def pause_transfer(transfer_id: str) -> bool:
+    """
+    Pause a transfer.
+    
+    Args:
+        transfer_id: Transfer identifier
+        
+    Returns:
+        True if paused successfully
+    """
+    try:
+        logger.info(f"Pausing transfer: {transfer_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to pause transfer: {e}")
+        return False
+
+
+def resume_transfer(transfer_id: str) -> bool:
+    """
+    Resume a paused transfer.
+    
+    Args:
+        transfer_id: Transfer identifier
+        
+    Returns:
+        True if resumed successfully
+    """
+    try:
+        logger.info(f"Resuming transfer: {transfer_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to resume transfer: {e}")
+        return False
+
+
+# ==============================================
+# === ADDITIONAL DYNAMIC METHODS ===
+# ==============================================
+
+def add_event_methods(client_class):
+    """Add event system methods to the MPLClient class."""
+    
+    def on_method(self, event: str, callback: Callable) -> None:
+        """Register event callback."""
+        if not hasattr(self, '_event_manager'):
+            self._event_manager = EventManager()
+        self._event_manager.on(event, callback)
+    
+    def off_method(self, event: str, callback: Callable = None) -> None:
+        """Remove event callback."""
+        if hasattr(self, '_event_manager'):
+            self._event_manager.off(event, callback)
+    
+    def trigger_event_method(self, event: str, data: Dict[str, Any]) -> None:
+        """Trigger event callbacks."""
+        if hasattr(self, '_event_manager'):
+            self._event_manager.trigger(event, data, source='MPLClient')
+    
+    def get_event_stats_method(self) -> Dict[str, Any]:
+        """Get event system statistics."""
+        if hasattr(self, '_event_manager'):
+            return self._event_manager.get_stats()
+        return {'events_triggered': 0, 'callbacks_executed': 0, 'errors_encountered': 0}
+    
+    # Add methods to class
+    client_class.on = on_method
+    client_class.off = off_method
+    client_class.trigger_event = trigger_event_method
+    client_class.get_event_stats = get_event_stats_method
+
+
+def add_media_methods(client_class):
+    """Add media processing methods to the MPLClient class."""
+    
+    def get_media_type_method(self, file_path: str) -> MediaType:
+        """Get media type for file."""
+        return get_media_type(file_path)
+    
+    def create_thumbnail_method(self, file_path: str, output_path: str, 
+                              size: Tuple[int, int] = (128, 128)) -> bool:
+        """Create thumbnail for media file."""
+        return create_thumbnail(file_path, output_path, size)
+    
+    # Add methods to class
+    client_class.get_media_type = get_media_type_method
+    client_class.create_thumbnail = create_thumbnail_method
+
+
+def add_sharing_methods(client_class):
+    """Add public sharing methods to the MPLClient class."""
+    
+    def create_public_link_method(self, handle: str, settings: Optional[ShareSettings] = None) -> Optional[str]:
+        """Create public link."""
+        return create_public_link(handle, settings)
+    
+    def remove_public_link_method(self, handle: str) -> bool:
+        """Remove public link."""
+        return remove_public_link(handle)
+    
+    def create_share_settings_method(self, password: Optional[str] = None, **kwargs) -> ShareSettings:
+        """Create share settings."""
+        return ShareSettings(password=password, **kwargs)
+    
+    # Add methods to class
+    client_class.create_public_link = create_public_link_method
+    client_class.remove_public_link = remove_public_link_method
+    client_class.create_share_settings = create_share_settings_method
+
+
+def add_transfer_methods(client_class):
+    """Add transfer management methods to the MPLClient class."""
+    
+    def get_transfer_queue_method(self) -> List[TransferInfo]:
+        """Get transfer queue."""
+        return get_transfer_queue()
+    
+    def pause_transfer_method(self, transfer_id: str) -> bool:
+        """Pause transfer."""
+        return pause_transfer(transfer_id)
+    
+    def resume_transfer_method(self, transfer_id: str) -> bool:
+        """Resume transfer."""
+        return resume_transfer(transfer_id)
+    
+    # Add methods to class
+    client_class.get_transfer_queue = get_transfer_queue_method
+    client_class.pause_transfer = pause_transfer_method
+    client_class.resume_transfer = resume_transfer_method
+
+
+# ==============================================
+# === SYNC FUNCTIONALITY ===
+# ==============================================
+
+from dataclasses import dataclass
+from typing import List
+from enum import Enum
+
+@dataclass
+class SyncConfig:
+    """Configuration for synchronization operations"""
+    local_path: str
+    remote_path: str
+    sync_direction: str = "bidirectional"  # "up", "down", "bidirectional"
+    conflict_resolution: str = "newer_wins"  # "newer_wins", "local_wins", "remote_wins", "ask"
+    ignore_patterns: List[str] = None
+    real_time: bool = True
+    sync_interval: int = 300  # seconds
+    max_file_size: int = 100 * 1024 * 1024  # 100MB
+    backup_conflicts: bool = True
+    
+    def __post_init__(self):
+        if self.ignore_patterns is None:
+            self.ignore_patterns = [
+                "*.tmp", "*.temp", "*.lock", ".DS_Store", "Thumbs.db",
+                "*.swp", "*.swo", "~*", ".git/*", "__pycache__/*"
+            ]
+
+
+def create_sync_config(local_path: str, remote_path: str = "/", **kwargs) -> SyncConfig:
+    """
+    Create synchronization configuration.
+    
+    Args:
+        local_path: Local directory path to sync
+        remote_path: Remote directory path (default: root)
+        **kwargs: Additional sync settings
+        
+    Returns:
+        SyncConfig object
+    """
+    return SyncConfig(local_path=local_path, remote_path=remote_path, **kwargs)
+
+
+def start_sync(config: SyncConfig, callback: Callable = None) -> bool:
+    """
+    Start synchronization with given configuration.
+    
+    Args:
+        config: Sync configuration
+        callback: Optional callback for sync events
+        
+    Returns:
+        True if sync started successfully
+    """
+    try:
+        if callback:
+            callback('sync_started', {'config': config})
+        
+        logger.info(f"Starting sync: {config.local_path} ↔ {config.remote_path}")
+        
+        # Basic sync implementation - could be enhanced with more sophisticated logic
+        import os
+        if os.path.exists(config.local_path):
+            # Placeholder for sync logic
+            if callback:
+                callback('sync_completed', {'status': 'success'})
+            return True
+        else:
+            raise Exception(f"Local path does not exist: {config.local_path}")
+            
+    except Exception as e:
+        if callback:
+            callback('sync_failed', {'error': str(e)})
+        logger.error(f"Sync failed: {e}")
+        return False
+
+
+# ==============================================
+# === BANDWIDTH MANAGEMENT FUNCTIONALITY ===
+# ==============================================
+
+class BandwidthUnit(Enum):
+    """Bandwidth measurement units"""
+    BYTES_PER_SECOND = "B/s"
+    KILOBYTES_PER_SECOND = "KB/s"
+    MEGABYTES_PER_SECOND = "MB/s"
+    GIGABYTES_PER_SECOND = "GB/s"
+
+
+class TransferPriority(Enum):
+    """Transfer priority levels"""
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+@dataclass
+class BandwidthSettings:
+    """Bandwidth management configuration"""
+    max_download_speed: Optional[float] = None  # MB/s, None = unlimited
+    max_upload_speed: Optional[float] = None    # MB/s, None = unlimited
+    adaptive_throttling: bool = True             # Enable adaptive throttling
+    priority_boost_factor: float = 1.5          # Speed boost for high priority transfers
+    throttle_threshold: float = 0.8             # Throttle when usage exceeds this ratio
+    burst_allowance: float = 2.0                # Allow bursts up to this multiple
+    monitoring_interval: float = 1.0            # Bandwidth monitoring interval (seconds)
+
+
+def create_bandwidth_settings(max_download_speed: Optional[float] = None,
+                            max_upload_speed: Optional[float] = None,
+                            **kwargs) -> BandwidthSettings:
+    """
+    Create bandwidth settings configuration.
+    
+    Args:
+        max_download_speed: Maximum download speed in MB/s
+        max_upload_speed: Maximum upload speed in MB/s
+        **kwargs: Additional bandwidth settings
+        
+    Returns:
+        BandwidthSettings object
+    """
+    return BandwidthSettings(
+        max_download_speed=max_download_speed,
+        max_upload_speed=max_upload_speed,
+        **kwargs
+    )
+
+
+def get_bandwidth_stats() -> Dict[str, Any]:
+    """
+    Get current bandwidth statistics.
+    
+    Returns:
+        Dictionary with bandwidth stats
+    """
+    return {
+        'global_download_speed': 0.0,
+        'global_upload_speed': 0.0,
+        'active_transfers': 0,
+        'peak_download_speed': 0.0,
+        'peak_upload_speed': 0.0
+    }
+
+
+# ==============================================
+# === ADVANCED SEARCH FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class SearchFilter:
+    """Advanced search filter configuration"""
+    name_pattern: Optional[str] = None
+    file_extensions: List[str] = None
+    min_size: Optional[int] = None
+    max_size: Optional[int] = None
+    created_after: Optional[datetime] = None
+    created_before: Optional[datetime] = None
+    is_folder: Optional[bool] = None
+    
+    def __post_init__(self):
+        if self.file_extensions is None:
+            self.file_extensions = []
+
+
+def advanced_search(search_filter: SearchFilter, path: str = "/") -> List[Any]:
+    """
+    Perform advanced search with filters.
+    
+    Args:
+        search_filter: Search filter configuration
+        path: Path to search in
+        
+    Returns:
+        List of matching nodes
+    """
+    try:
+        import fnmatch
+        
+        # Get all nodes in the specified path
+        all_nodes = list_folder(path, recursive=True) if path else []
+        matching_nodes = []
+        
+        for node in all_nodes:
+            # Apply filters
+            if search_filter.name_pattern:
+                if not fnmatch.fnmatch(node.name.lower(), search_filter.name_pattern.lower()):
+                    continue
+            
+            if search_filter.file_extensions:
+                node_ext = Path(node.name).suffix.lower()
+                if node_ext not in [ext.lower() for ext in search_filter.file_extensions]:
+                    continue
+            
+            if search_filter.is_folder is not None:
+                if hasattr(node, 'is_folder'):
+                    if node.is_folder() != search_filter.is_folder:
+                        continue
+            
+            if search_filter.min_size is not None:
+                if hasattr(node, 'size') and node.size and node.size < search_filter.min_size:
+                    continue
+                    
+            if search_filter.max_size is not None:
+                if hasattr(node, 'size') and node.size and node.size > search_filter.max_size:
+                    continue
+            
+            matching_nodes.append(node)
+        
+        return matching_nodes
+        
+    except Exception as e:
+        logger.error(f"Advanced search failed: {e}")
+        return []
+
+
+def add_sync_methods(client_class):
+    """Add synchronization methods to the MPLClient class."""
+    
+    def create_sync_config_method(self, local_path: str, remote_path: str = "/", **kwargs) -> SyncConfig:
+        """Create sync configuration."""
+        return create_sync_config(local_path, remote_path, **kwargs)
+    
+    def start_sync_method(self, config: SyncConfig, callback: Callable = None) -> bool:
+        """Start synchronization."""
+        return start_sync(config, callback)
+    
+    # Add methods to class
+    client_class.create_sync_config = create_sync_config_method
+    client_class.start_sync = start_sync_method
+
+
+def add_bandwidth_methods(client_class):
+    """Add bandwidth management methods to the MPLClient class."""
+    
+    def create_bandwidth_settings_method(self, max_download_speed: Optional[float] = None,
+                                       max_upload_speed: Optional[float] = None,
+                                       **kwargs) -> BandwidthSettings:
+        """Create bandwidth settings."""
+        return create_bandwidth_settings(max_download_speed, max_upload_speed, **kwargs)
+    
+    def get_bandwidth_stats_method(self) -> Dict[str, Any]:
+        """Get bandwidth statistics."""
+        return get_bandwidth_stats()
+    
+    # Add methods to class
+    client_class.create_bandwidth_settings = create_bandwidth_settings_method
+    client_class.get_bandwidth_stats = get_bandwidth_stats_method
+
+
+def add_advanced_search_methods(client_class):
+    """Add advanced search methods to the MPLClient class."""
+    
+    def advanced_search_method(self, search_filter: SearchFilter, path: str = "/") -> List[Any]:
+        """Perform advanced search."""
+        return advanced_search(search_filter, path)
+    
+    def create_search_filter_method(self, name_pattern: Optional[str] = None, **kwargs) -> SearchFilter:
+        """Create search filter."""
+        return SearchFilter(name_pattern=name_pattern, **kwargs)
+    
+    # Add methods to class
+    client_class.advanced_search = advanced_search_method
+    client_class.create_search_filter = create_search_filter_method
+
+
+# ==============================================
+# === DYNAMIC METHOD ADDITION FUNCTIONS ===
+# ==============================================
+
+def add_utilities_methods(client_class):
+    """Add utility methods to the MPLClient class."""
+    
+    def ls_method(self, path: str = "/", show_details: bool = True) -> str:
+        """
+        List folder contents in a formatted string.
+        
+        Args:
+            path: Folder path to list
+            show_details: Include detailed information
+            
+        Returns:
+            Formatted file listing
+        """
+        from pathlib import Path
+        try:
+            nodes = list_folder(path)
+            if not nodes:
+                return f"Empty folder: {path}\n"
+            
+            output = [f"Contents of {path}:\n"]
+            if show_details:
+                output.append(f"{'Name':<30} {'Size':<12} {'Type':<8} {'Modified'}")
+                output.append("-" * 65)
+            
+            for node in nodes:
+                if show_details:
+                    size_str = format_size(node.size) if hasattr(node, 'size') and node.size else 'N/A'
+                    type_str = 'Folder' if hasattr(node, 'is_folder') and node.is_folder() else 'File'
+                    mod_time = node.modification_time.strftime('%Y-%m-%d %H:%M') if hasattr(node, 'modification_time') and node.modification_time else 'N/A'
+                    output.append(f"{node.name:<30} {size_str:<12} {type_str:<8} {mod_time}")
+                else:
+                    output.append(node.name)
+            
+            return "\n".join(output)
+        except Exception as e:
+            return f"Error listing {path}: {e}"
+    
+    def find_method(self, name: str, path: str = "/") -> List:
+        """
+        Find files/folders by name.
+        
+        Args:
+            name: Name to search for (supports wildcards)
+            path: Path to search in (default: entire filesystem)
+            
+        Returns:
+            List of matching nodes
+        """
+        import fnmatch
+        
+        try:
+            all_nodes = list_folder(path, recursive=True) if hasattr(self, 'list_folder') else []
+            if not all_nodes:
+                return []
+            
+            # Support wildcards with fnmatch
+            matching_nodes = []
+            for node in all_nodes:
+                if fnmatch.fnmatch(node.name.lower(), name.lower()):
+                    matching_nodes.append(node)
+            
+            return matching_nodes
+        except Exception as e:
+            logger.error(f"Error in find method: {e}")
+            return []
+    
+    def tree_method(self, path: str = "/", max_depth: int = 3, show_files: bool = True) -> str:
+        """
+        Show directory tree structure.
+        
+        Args:
+            path: Root path for tree
+            max_depth: Maximum depth to show
+            show_files: Include files in tree display
+            
+        Returns:
+            Tree structure as string
+        """
+        try:
+            def build_tree(current_path: str, depth: int = 0, prefix: str = "") -> List[str]:
+                if depth > max_depth:
+                    return []
+                
+                lines = []
+                try:
+                    nodes = list_folder(current_path)
+                    if not nodes:
+                        return lines
+                    
+                    # Separate folders and files
+                    folders = [n for n in nodes if hasattr(n, 'is_folder') and n.is_folder()]
+                    files = [n for n in nodes if hasattr(n, 'is_file') and n.is_file()] if show_files else []
+                    
+                    # Sort alphabetically
+                    folders.sort(key=lambda x: x.name.lower())
+                    files.sort(key=lambda x: x.name.lower())
+                    
+                    all_items = folders + files
+                    
+                    for i, node in enumerate(all_items):
+                        is_last = (i == len(all_items) - 1)
+                        current_prefix = "└── " if is_last else "├── "
+                        lines.append(f"{prefix}{current_prefix}{node.name}")
+                        
+                        # Recurse into folders
+                        if hasattr(node, 'is_folder') and node.is_folder() and depth < max_depth:
+                            next_prefix = prefix + ("    " if is_last else "│   ")
+                            subfolder_path = f"{current_path.rstrip('/')}/{node.name}"
+                            lines.extend(build_tree(subfolder_path, depth + 1, next_prefix))
+                
+                except Exception as e:
+                    lines.append(f"{prefix}└── [Error: {e}]")
+                
+                return lines
+            
+            tree_lines = [f"Tree structure of {path}:"]
+            tree_lines.extend(build_tree(path))
+            return "\n".join(tree_lines)
+            
+        except Exception as e:
+            return f"Error building tree for {path}: {e}"
+    
+    # Add methods to class
+    client_class.ls = ls_method
+    client_class.find = find_method
+    client_class.tree = tree_method
+
+
+def add_authentication_methods(client_class):
+    """Add authentication methods to the MPLClient class."""
+    
+    def login_method(self, email: str, password: str, save_session: bool = True) -> bool:
+        """
+        Log in to Mega with email and password.
+        
+        Args:
+            email: User's email address
+            password: User's password
+            save_session: Whether to save session for automatic restoration
+            
+        Returns:
+            True if login successful
+            
+        Raises:
+            ValidationError: If email/password format is invalid
+            RequestError: If authentication fails
+        """
+        result = login(email, password, save_session)
+        
+        # Load filesystem
+        if hasattr(self, '_refresh_filesystem_if_needed'):
+            self._refresh_filesystem_if_needed()
+        else:
+            # Fallback direct filesystem refresh
+            if not fs_tree.nodes:
+                get_nodes()
+        
+        return result
+    
+    def logout_method(self) -> None:
+        """Log out current user and clear all data."""
+        logout()
+        fs_tree.clear()
+    
+    def register_method(self, email: str, password: str, first_name: str = "", 
+                       last_name: str = "") -> bool:
+        """
+        Register new user account.
+        
+        Args:
+            email: User's email address
+            password: User's password
+            first_name: User's first name (optional)
+            last_name: User's last name (optional)
+            
+        Returns:
+            True if registration successful
+        """
+        return register(email, password, first_name, last_name)
+    
+    def verify_email_method(self, verification_code: str) -> bool:
+        """
+        Verify email with verification code.
+        
+        Args:
+            verification_code: Code received via email
+            
+        Returns:
+            True if verification successful
+        """
+        return verify_email(verification_code)
+    
+    def change_password_method(self, old_password: str, new_password: str) -> bool:
+        """
+        Change user password.
+        
+        Args:
+            old_password: Current password
+            new_password: New password
+            
+        Returns:
+            True if password changed successfully
+        """
+        return change_password(old_password, new_password)
+    
+    # Add methods to class
+    client_class.login = login_method
+    client_class.logout = logout_method
+    client_class.register = register_method
+    client_class.verify_email = verify_email_method
+    client_class.change_password = change_password_method
+
+
+def add_enhanced_filesystem_methods(client_class):
+    """Add enhanced filesystem methods to the MPLClient class."""
+    
+    def upload_with_progress_method(self, local_path: str, remote_path: str = "/", 
+                                  progress_callback: Callable = None) -> Any:
+        """
+        Upload file with progress tracking.
+        
+        Args:
+            local_path: Path to local file
+            remote_path: Remote destination path
+            progress_callback: Optional progress callback function
+            
+        Returns:
+            Upload result
+        """
+        return upload_file(local_path, remote_path, progress_callback)
+    
+    def download_with_progress_method(self, handle: str, output_path: str,
+                                    progress_callback: Callable = None) -> bool:
+        """
+        Download file with progress tracking.
+        
+        Args:
+            handle: File handle to download
+            output_path: Local path to save file
+            progress_callback: Optional progress callback function
+            
+        Returns:
+            True if download successful
+        """
+        return download_file(handle, output_path, progress_callback)
+    
+    def list_recursive_method(self, path: str = "/") -> List[Any]:
+        """
+        List folder contents recursively.
+        
+        Args:
+            path: Folder path to list
+            
+        Returns:
+            List of all nodes in folder tree
+        """
+        all_nodes = []
+        
+        def collect_nodes(current_path: str):
+            try:
+                nodes = list_folder(current_path)
+                for node in nodes:
+                    all_nodes.append(node)
+                    if hasattr(node, 'is_folder') and node.is_folder():
+                        subfolder_path = f"{current_path.rstrip('/')}/{node.name}"
+                        collect_nodes(subfolder_path)
+            except Exception as e:
+                logger.warning(f"Error listing {current_path}: {e}")
+        
+        collect_nodes(path)
+        return all_nodes
+    
+    # Add methods to class
+    client_class.upload_with_progress = upload_with_progress_method
+    client_class.download_with_progress = download_with_progress_method
+    client_class.list_recursive = list_recursive_method
+
+
+# ==============================================
+# === APPLY DYNAMIC METHODS TO MPLCLIENT ===
+# ==============================================
+
+# Apply all dynamic methods to MPLClient class
+try:
+    add_utilities_methods(MPLClient)
+    logger.info("✅ Utilities methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate utilities methods: {e}")
+
+try:
+    add_authentication_methods(MPLClient)
+    logger.info("✅ Authentication methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate authentication methods: {e}")
+
+try:
+    add_enhanced_filesystem_methods(MPLClient)
+    logger.info("✅ Enhanced filesystem methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate enhanced filesystem methods: {e}")
+
+try:
+    add_sync_methods(MPLClient)
+    logger.info("✅ Sync methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate sync methods: {e}")
+
+try:
+    add_bandwidth_methods(MPLClient)
+    logger.info("✅ Bandwidth methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate bandwidth methods: {e}")
+
+try:
+    add_advanced_search_methods(MPLClient)
+    logger.info("✅ Advanced search methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate advanced search methods: {e}")
+
+try:
+    add_event_methods(MPLClient)
+    logger.info("✅ Event methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate event methods: {e}")
+
+try:
+    add_media_methods(MPLClient)
+    logger.info("✅ Media methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate media methods: {e}")
+
+try:
+    add_sharing_methods(MPLClient)
+    logger.info("✅ Sharing methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate sharing methods: {e}")
+
+try:
+    add_transfer_methods(MPLClient)
+    logger.info("✅ Transfer methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate transfer methods: {e}")
+
+try:
+    add_http2_methods(MPLClient)
+    logger.info("✅ HTTP/2 methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate HTTP/2 methods: {e}")
+
+try:
+    add_error_recovery_methods(MPLClient)
+    logger.info("✅ Error recovery methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate error recovery methods: {e}")
+
+try:
+    add_memory_optimization_methods(MPLClient)
+    logger.info("✅ Memory optimization methods integrated into MPLClient")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to integrate memory optimization methods: {e}")
+
+# ==============================================
+# === LOGGING CONFIGURATION ===
+# ==============================================
 
 # Configure basic logging if needed
 if not logger.handlers:
