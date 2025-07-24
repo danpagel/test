@@ -1522,6 +1522,1451 @@ def clear_network_cache() -> None:
     _api_session.clear_cache()
 
 
+# ==============================================
+# === AUTHENTICATION AND SESSION MANAGEMENT ===
+# ==============================================
+
+class UserSession:
+    """
+    Represents an authenticated user session with Mega.
+    """
+    
+    def __init__(self):
+        self.email: Optional[str] = None
+        self.session_id: Optional[str] = None
+        self.master_key: Optional[bytes] = None
+        self.rsa_private_key: Optional[bytes] = None
+        self.user_handle: Optional[str] = None
+        self.is_authenticated = False
+        self.session_data: Dict[str, Any] = {}
+    
+    def clear(self) -> None:
+        """Clear all session data."""
+        self.email = None
+        self.session_id = None
+        self.master_key = None
+        self.rsa_private_key = None
+        self.user_handle = None
+        self.is_authenticated = False
+        self.session_data.clear()
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert session to dictionary for persistence."""
+        return {
+            'email': self.email,
+            'session_id': self.session_id,
+            'master_key': base64_url_encode(self.master_key) if self.master_key else None,
+            'rsa_private_key': base64_url_encode(self.rsa_private_key) if self.rsa_private_key else None,
+            'user_handle': self.user_handle,
+            'is_authenticated': self.is_authenticated,
+            'session_data': self.session_data,
+        }
+    
+    def from_dict(self, data: Dict[str, Any]) -> None:
+        """Restore session from dictionary."""
+        self.email = data.get('email')
+        self.session_id = data.get('session_id')
+        self.master_key = base64_url_decode(data['master_key']) if data.get('master_key') else None
+        self.rsa_private_key = base64_url_decode(data['rsa_private_key']) if data.get('rsa_private_key') else None
+        self.user_handle = data.get('user_handle')
+        self.is_authenticated = data.get('is_authenticated', False)
+        self.session_data = data.get('session_data', {})
+
+
+# Global user session
+current_session = UserSession()
+
+
+def mpi_to_int(s: bytes) -> int:
+    """
+    Convert MPI (Multi-Precision Integer) format to integer.
+    
+    Args:
+        s: MPI format bytes
+        
+    Returns:
+        Integer value
+    """
+    if len(s) < 2:
+        return 0
+    
+    # First 2 bytes contain bit length
+    bit_length = (s[0] << 8) + s[1]
+    byte_length = math.ceil(bit_length / 8)
+    
+    if len(s) < 2 + byte_length:
+        return 0
+    
+    # Convert bytes to integer
+    return int.from_bytes(s[2:2 + byte_length], 'big')
+
+
+def modular_inverse(a: int, m: int) -> int:
+    """
+    Calculate modular inverse using extended Euclidean algorithm.
+    
+    Args:
+        a: Number to find inverse for
+        m: Modulus
+        
+    Returns:
+        Modular inverse of a mod m
+    """
+    if m == 0:
+        return 1
+    
+    # Extended Euclidean Algorithm
+    def extended_gcd(a, b):
+        if a == 0:
+            return b, 0, 1
+        gcd, x1, y1 = extended_gcd(b % a, a)
+        x = y1 - (b // a) * x1
+        y = x1
+        return gcd, x, y
+    
+    gcd, x, _ = extended_gcd(a % m, m)
+    if gcd != 1:
+        raise ValueError("Modular inverse does not exist")
+    return (x % m + m) % m
+
+
+def get_session_file_path() -> Path:
+    """Get path to session file."""
+    return Path.home() / '.mpl_session.json'
+
+
+def save_user_session() -> None:
+    """Save current user session to file."""
+    if not current_session.is_authenticated:
+        return
+    
+    try:
+        session_file = get_session_file_path()
+        session_data = current_session.to_dict()
+        
+        with open(session_file, 'w') as f:
+            json.dump(session_data, f)
+        
+        # Set restrictive permissions
+        os.chmod(session_file, 0o600)
+        
+    except Exception as e:
+        logger.warning(f"Failed to save session: {e}")
+
+
+def load_user_session() -> bool:
+    """
+    Load saved user session from file.
+    
+    Returns:
+        True if session was loaded successfully, False otherwise
+    """
+    try:
+        session_file = get_session_file_path()
+        if not session_file.exists():
+            return False
+        
+        with open(session_file, 'r') as f:
+            session_data = json.load(f)
+        
+        current_session.from_dict(session_data)
+        
+        # Set session ID in API session
+        if current_session.session_id:
+            _api_session.set_session_id(current_session.session_id)
+        
+        return current_session.is_authenticated
+        
+    except Exception as e:
+        logger.warning(f"Failed to load session: {e}")
+        return False
+
+
+def clear_saved_session() -> None:
+    """Clear saved session file."""
+    try:
+        session_file = get_session_file_path()
+        if session_file.exists():
+            session_file.unlink()
+    except Exception as e:
+        logger.warning(f"Failed to clear saved session: {e}")
+
+
+def login(email: str, password: str, save_session: bool = True) -> UserSession:
+    """
+    Authenticate user with email and password using Mega's exact login sequence.
+    
+    Args:
+        email: User's email address
+        password: User's password
+        save_session: Whether to save session for persistence
+        
+    Returns:
+        Authenticated user session
+        
+    Raises:
+        ValidationError: If email/password format is invalid
+        RequestError: If authentication fails
+    """
+    # Validate inputs
+    if not validate_email(email):
+        raise ValidationError("Invalid email address format")
+    
+    if not validate_password(password):
+        raise ValidationError("Password must be at least 8 characters")
+    
+    # Normalize email
+    email = email.lower().strip()
+    
+    logger.info(f'Logging in user: {email}')
+    
+    # Step 1: Check if user has salt (v2 account) or is v1 account
+    get_user_salt_resp = single_api_request({'a': 'us0', 'user': email})
+    user_salt = None
+    
+    try:
+        user_salt = base64_to_a32(get_user_salt_resp['s'])
+        logger.info('Detected v2 user account (with salt)')
+    except (KeyError, TypeError):
+        logger.info('Detected v1 user account (no salt)')
+        user_salt = None
+    
+    # Step 2: Derive password AES key and user hash
+    if user_salt is None:
+        # v1 user account: derive key directly from password
+        password_a32 = string_to_a32(password)
+        password_aes = prepare_key(password_a32)
+        user_hash = stringhash(email, password_aes)
+    else:
+        # v2 user account: use PBKDF2 for key derivation
+        pbkdf2_key = hashlib.pbkdf2_hmac(
+            hash_name='sha512',
+            password=password.encode(),
+            salt=makebyte(a32_to_string(user_salt)),
+            iterations=100000,
+            dklen=32
+        )
+        password_aes = string_to_a32(makestring(pbkdf2_key[:16]))
+        user_hash = base64_url_encode(pbkdf2_key[-16:])
+    
+    # Step 3: Send login request
+    login_command = {
+        'a': 'us',  # User session
+        'user': email,
+        'uh': user_hash,
+    }
+    
+    try:
+        # Make login request
+        resp = single_api_request(login_command)
+        
+        if isinstance(resp, int):
+            raise RequestError(resp)
+        
+        if not isinstance(resp, dict):
+            raise RequestError("Invalid login response format")
+        
+        # Step 4: Process login response and decrypt master key
+        encrypted_master_key = base64_to_a32(resp['k'])
+        master_key = decrypt_key(encrypted_master_key, password_aes)
+        
+        # Step 5: Handle session ID (tsid or csid)
+        session_id = None
+        
+        if 'tsid' in resp:
+            # Temporary session ID
+            tsid = base64_url_decode(resp['tsid'])
+            key_encrypted = makebyte(a32_to_string(
+                encrypt_key(string_to_a32(makestring(tsid[:16])), master_key)
+            ))
+            if key_encrypted == tsid[-16:]:
+                session_id = resp['tsid']
+        elif 'csid' in resp:
+            # CSE session ID - requires RSA decryption
+            encrypted_rsa_private_key = base64_to_a32(resp['privk'])
+            rsa_private_key = decrypt_key(encrypted_rsa_private_key, master_key)
+            
+            private_key = makebyte(a32_to_string(rsa_private_key))
+            
+            # Parse MPI integers from private key
+            rsa_private_key_components = [0, 0, 0, 0]
+            key_pos = 0
+            for i in range(4):
+                # MPI integer has 2-byte header describing bit length
+                if key_pos + 2 > len(private_key):
+                    break
+                bitlength = (private_key[key_pos] << 8) + private_key[key_pos + 1]
+                bytelength = math.ceil(bitlength / 8)
+                # Add 2 bytes for MPI header
+                total_length = bytelength + 2
+                
+                if key_pos + total_length > len(private_key):
+                    break
+                    
+                rsa_private_key_components[i] = mpi_to_int(private_key[key_pos:key_pos + total_length])
+                key_pos += total_length
+            
+            first_factor_p = rsa_private_key_components[0]
+            second_factor_q = rsa_private_key_components[1]
+            private_exponent_d = rsa_private_key_components[2]
+            
+            rsa_modulus_n = first_factor_p * second_factor_q
+            phi = (first_factor_p - 1) * (second_factor_q - 1)
+            public_exponent_e = modular_inverse(private_exponent_d, phi)
+            
+            if RSA is None:
+                raise RequestError("RSA library not available for CSE login")
+                
+            rsa_components = (
+                rsa_modulus_n,
+                public_exponent_e,
+                private_exponent_d,
+                first_factor_p,
+                second_factor_q,
+            )
+            rsa_decrypter = RSA.construct(rsa_components)
+            
+            encrypted_sid = mpi_to_int(base64_url_decode(resp['csid']))
+            sid = '%x' % rsa_decrypter._decrypt(encrypted_sid)
+            sid = binascii.unhexlify('0' + sid if len(sid) % 2 else sid)
+            session_id = base64_url_encode(sid[:43])
+        
+        if not session_id:
+            raise RequestError("No valid session ID received")
+        
+        # Extract user data
+        user_handle = resp.get('u')
+        
+        # Set up session
+        current_session.clear()
+        current_session.email = email
+        current_session.session_id = session_id
+        current_session.master_key = makebyte(a32_to_string(master_key))
+        current_session.user_handle = user_handle
+        current_session.is_authenticated = True
+        
+        # Set session ID in API session
+        _api_session.set_session_id(session_id)
+        
+        # Save session if requested
+        if save_session:
+            save_user_session()
+        
+        logger.info(f"Successfully logged in as {email}")
+        return current_session
+        
+    except Exception as e:
+        if is_authentication_error(getattr(e, 'args', [None])[0] if hasattr(e, 'args') else -1):
+            raise RequestError("Invalid email or password")
+        raise
+
+
+def logout() -> None:
+    """
+    Log out current user and clear session.
+    """
+    if current_session.is_authenticated and current_session.session_id:
+        try:
+            # Send logout command
+            logout_command = {'a': 'sml'}  # Session logout
+            single_api_request(logout_command, current_session.session_id)
+        except Exception as e:
+            logger.warning(f"Logout request failed: {e}")
+    
+    # Clear session data
+    current_session.clear()
+    _api_session.set_session_id(None)
+    
+    # Clear saved session
+    clear_saved_session()
+    
+    logger.info("Successfully logged out")
+
+
+def register(email: str, password: str, first_name: str = "", last_name: str = "") -> bool:
+    """
+    Register new user account.
+    
+    Args:
+        email: User's email address
+        password: User's password
+        first_name: User's first name (optional)
+        last_name: User's last name (optional)
+        
+    Returns:
+        True if registration initiated successfully
+    """
+    if not validate_email(email):
+        raise ValidationError("Invalid email address format")
+    
+    if not validate_password(password):
+        raise ValidationError("Password must be at least 8 characters")
+    
+    # Derive user key
+    password_a32 = string_to_a32(password)
+    password_aes = prepare_key(password_a32)
+    
+    # Create user
+    command = {
+        'a': 'up',
+        'k': a32_to_base64(password_aes),
+        'ts': base64_url_encode(secrets.token_bytes(16)),
+    }
+    
+    try:
+        result = single_api_request(command)
+        return True
+    except Exception as e:
+        logger.error(f"Registration failed: {e}")
+        return False
+
+
+def verify_email(email: str, verification_code: str) -> bool:
+    """
+    Verify email address with verification code.
+    
+    Args:
+        email: Email address to verify
+        verification_code: Verification code
+        
+    Returns:
+        True if verification successful
+    """
+    command = {
+        'a': 'uv',
+        'c': verification_code
+    }
+    
+    try:
+        result = single_api_request(command)
+        return True
+    except Exception as e:
+        logger.error(f"Email verification failed: {e}")
+        return False
+
+
+def is_logged_in() -> bool:
+    """Check if user is currently logged in."""
+    return current_session.is_authenticated
+
+
+def get_current_user() -> Optional[str]:
+    """Get current user's email address."""
+    return current_session.email if current_session.is_authenticated else None
+
+
+def get_user_info() -> Dict[str, Any]:
+    """
+    Get current user information.
+    
+    Returns:
+        Dictionary with user information
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    command = {'a': 'ug'}
+    result = single_api_request(command, current_session.session_id)
+    
+    return {
+        'email': current_session.email,
+        'user_handle': current_session.user_handle,
+        'name': result.get('name', ''),
+        'firstname': result.get('firstname', ''),
+        'lastname': result.get('lastname', ''),
+        'birthday': result.get('birthday'),
+        'birthmonth': result.get('birthmonth'),
+        'birthyear': result.get('birthyear'),
+        'country': result.get('country', ''),
+    }
+
+
+def get_user_quota() -> Dict[str, int]:
+    """
+    Get current user storage quota information.
+    
+    Returns:
+        Dictionary with quota information (bytes)
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    command = {'a': 'uq', 'xfer': 1, 'strg': 1}
+    result = single_api_request(command, current_session.session_id)
+    
+    return {
+        'total_storage': result.get('mstrg', 0),
+        'used_storage': result.get('cstrg', 0),
+        'available_storage': result.get('mstrg', 0) - result.get('cstrg', 0),
+        'total_transfer': result.get('mxfer', 0),
+        'used_transfer': result.get('caxfer', 0),
+        'available_transfer': result.get('mxfer', 0) - result.get('caxfer', 0),
+    }
+
+
+def change_password(old_password: str, new_password: str) -> bool:
+    """
+    Change user password.
+    
+    Args:
+        old_password: Current password
+        new_password: New password
+        
+    Returns:
+        True if password changed successfully
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    if not validate_password(new_password):
+        raise ValidationError("New password must be at least 8 characters")
+    
+    try:
+        # Get user salt
+        get_salt_resp = single_api_request({'a': 'us0', 'user': current_session.email})
+        user_salt = base64_to_a32(get_salt_resp['s']) if 's' in get_salt_resp else None
+        
+        # Derive new key
+        if user_salt is None:
+            new_password_a32 = string_to_a32(new_password)
+            new_password_aes = prepare_key(new_password_a32)
+        else:
+            pbkdf2_key = hashlib.pbkdf2_hmac(
+                hash_name='sha512',
+                password=new_password.encode(),
+                salt=makebyte(a32_to_string(user_salt)),
+                iterations=100000,
+                dklen=32
+            )
+            new_password_aes = string_to_a32(makestring(pbkdf2_key[:16]))
+        
+        # Encrypt master key with new password
+        encrypted_master_key = encrypt_key(
+            string_to_a32(makestring(current_session.master_key)),
+            new_password_aes
+        )
+        
+        # Send password change request
+        command = {
+            'a': 'up',
+            'k': a32_to_base64(encrypted_master_key),
+        }
+        
+        result = single_api_request(command, current_session.session_id)
+        return True
+        
+    except Exception as e:
+        logger.error(f"Password change failed: {e}")
+        return False
+
+
+def require_authentication(func):
+    """Decorator to require authentication for function calls."""
+    def wrapper(*args, **kwargs):
+        if not is_logged_in():
+            raise RequestError("Authentication required")
+        return func(*args, **kwargs)
+    return wrapper
+
+
+# Event-enabled authentication functions
+def login_with_events(email: str, password: str, save_session: bool = True, 
+                     event_callback=None) -> UserSession:
+    """Login with event callbacks."""
+    if event_callback:
+        event_callback('login_started', {'email': email})
+    
+    try:
+        result = login(email, password, save_session)
+        if event_callback:
+            event_callback('login_completed', {'email': email, 'success': True})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('login_failed', {'email': email, 'error': str(e)})
+        raise
+
+
+def logout_with_events(event_callback=None) -> None:
+    """Logout with event callbacks."""
+    email = current_session.email
+    if event_callback:
+        event_callback('logout_started', {'email': email})
+    
+    try:
+        logout()
+        if event_callback:
+            event_callback('logout_completed', {'email': email})
+    except Exception as e:
+        if event_callback:
+            event_callback('logout_failed', {'email': email, 'error': str(e)})
+        raise
+
+
+def register_with_events(email: str, password: str, first_name: str = "", 
+                        last_name: str = "", event_callback=None) -> bool:
+    """Register with event callbacks."""
+    if event_callback:
+        event_callback('registration_started', {'email': email})
+    
+    try:
+        result = register(email, password, first_name, last_name)
+        if event_callback:
+            event_callback('registration_completed', {'email': email, 'success': result})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('registration_failed', {'email': email, 'error': str(e)})
+        raise
+
+
+def verify_email_with_events(email: str, verification_code: str, 
+                           event_callback=None) -> bool:
+    """Verify email with event callbacks."""
+    if event_callback:
+        event_callback('verification_started', {'email': email})
+    
+    try:
+        result = verify_email(email, verification_code)
+        if event_callback:
+            event_callback('verification_completed', {'email': email, 'success': result})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('verification_failed', {'email': email, 'error': str(e)})
+        raise
+
+
+def change_password_with_events(old_password: str, new_password: str, 
+                               event_callback=None) -> bool:
+    """Change password with event callbacks."""
+    if event_callback:
+        event_callback('password_change_started', {})
+    
+    try:
+        result = change_password(old_password, new_password)
+        if event_callback:
+            event_callback('password_change_completed', {'success': result})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('password_change_failed', {'error': str(e)})
+        raise
+
+
+# ==============================================
+# === FILESYSTEM OPERATIONS ===
+# ==============================================
+
+# Node types in Mega filesystem
+NODE_TYPE_FILE = 0
+NODE_TYPE_FOLDER = 1
+NODE_TYPE_ROOT = 2
+NODE_TYPE_INBOX = 3
+NODE_TYPE_TRASH = 4
+
+# Chunk size for file operations
+CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+MAX_CHUNK_SIZE = 1024 * 1024 * 10  # 10MB max chunk
+
+
+class MegaNode:
+    """
+    Represents a file or folder node in the Mega filesystem.
+    """
+    
+    def __init__(self, node_data: Dict[str, Any]):
+        self.handle = node_data.get('h', '')
+        self.parent_handle = node_data.get('p', '')
+        self.owner = node_data.get('u', '')
+        self.node_type = node_data.get('t', NODE_TYPE_FILE)
+        self.size = node_data.get('s', 0)
+        self.timestamp = node_data.get('ts', 0)
+        
+        # Get attributes (already decrypted by _process_file)
+        self.attributes = node_data.get('a', {})
+        
+        # Get name from decrypted attributes
+        if isinstance(self.attributes, dict):
+            self.name = self.attributes.get('n', f'Unknown_{self.handle}')
+        else:
+            self.name = f'Encrypted_{self.handle}'
+        
+        # Key data (already processed by _process_file)
+        self.key = node_data.get('key', None)  # Full decrypted key (8 elements)
+        self.decryption_key = node_data.get('k', None)  # Processed key for decrypt (4 elements for files)
+        
+        # Original encrypted key data (only if not processed)
+        if isinstance(node_data.get('k'), str):
+            self.encrypted_key_data = node_data.get('k', '')
+        else:
+            self.encrypted_key_data = ''
+        
+        # File-specific data
+        if self.node_type == NODE_TYPE_FILE and self.key:
+            self.file_iv = node_data.get('iv', [])
+            self.meta_mac = node_data.get('meta_mac', [])
+        
+        # Calculate creation time
+        self.created_time = self.timestamp
+        self.modified_time = self.timestamp
+    
+    def is_file(self) -> bool:
+        """Check if node is a file."""
+        return self.node_type == NODE_TYPE_FILE
+    
+    def is_folder(self) -> bool:
+        """Check if node is a folder."""
+        return self.node_type == NODE_TYPE_FOLDER
+    
+    def is_root(self) -> bool:
+        """Check if node is the root folder."""
+        return self.node_type == NODE_TYPE_ROOT
+    
+    def is_trash(self) -> bool:
+        """Check if node is in trash."""
+        return self.node_type == NODE_TYPE_TRASH
+    
+    def get_size_formatted(self) -> str:
+        """Get human-readable file size."""
+        return format_size(self.size)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert node to dictionary."""
+        return {
+            'handle': self.handle,
+            'parent_handle': self.parent_handle,
+            'name': self.name,
+            'type': 'file' if self.is_file() else 'folder',
+            'size': self.size,
+            'timestamp': self.timestamp,
+            'attributes': self.attributes,
+        }
+
+
+class FileSystemTree:
+    """
+    Manages the Mega filesystem tree structure with smart caching.
+    """
+    
+    def __init__(self):
+        self.nodes: Dict[str, MegaNode] = {}
+        self.children: Dict[str, List[str]] = {}
+        self.root_handle = None
+        self.last_refresh = 0
+        self.refresh_threshold = 300  # 5 minutes
+    
+    def clear(self) -> None:
+        """Clear all cached data."""
+        self.nodes.clear()
+        self.children.clear()
+        self.root_handle = None
+        self.last_refresh = 0
+    
+    def add_node(self, node: MegaNode) -> None:
+        """Add a node to the tree."""
+        self.nodes[node.handle] = node
+        
+        # Update children mapping
+        if node.parent_handle:
+            if node.parent_handle not in self.children:
+                self.children[node.parent_handle] = []
+            if node.handle not in self.children[node.parent_handle]:
+                self.children[node.parent_handle].append(node.handle)
+        
+        # Set root handle
+        if node.is_root():
+            self.root_handle = node.handle
+    
+    def get_node(self, handle: str) -> Optional[MegaNode]:
+        """Get node by handle."""
+        return self.nodes.get(handle)
+    
+    def get_children(self, handle: str) -> List[MegaNode]:
+        """Get children of a node."""
+        child_handles = self.children.get(handle, [])
+        return [self.nodes[h] for h in child_handles if h in self.nodes]
+    
+    def get_node_by_path(self, path: str) -> Optional[MegaNode]:
+        """Get node by path."""
+        if path == "/" or path == "":
+            return self.nodes.get(self.root_handle) if self.root_handle else None
+        
+        # Split path into components
+        parts = [p for p in path.split('/') if p]
+        
+        # Start from root
+        current_node = self.nodes.get(self.root_handle) if self.root_handle else None
+        if not current_node:
+            return None
+        
+        # Navigate path
+        for part in parts:
+            found = False
+            for child in self.get_children(current_node.handle):
+                if child.name == part:
+                    current_node = child
+                    found = True
+                    break
+            
+            if not found:
+                return None
+        
+        return current_node
+    
+    def needs_refresh(self) -> bool:
+        """Check if filesystem data needs refresh."""
+        return (time.time() - self.last_refresh) > self.refresh_threshold
+    
+    def mark_refreshed(self) -> None:
+        """Mark filesystem as recently refreshed."""
+        self.last_refresh = time.time()
+
+
+# Global filesystem tree
+fs_tree = FileSystemTree()
+
+
+def refresh_filesystem() -> None:
+    """
+    Refresh filesystem data from Mega API.
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    logger.info("Refreshing filesystem...")
+    
+    # Get filesystem nodes
+    command = {'a': 'f', 'c': 1}
+    result = single_api_request(command, current_session.session_id)
+    
+    if not isinstance(result, dict) or 'f' not in result:
+        raise RequestError("Invalid filesystem response")
+    
+    # Clear existing tree
+    fs_tree.clear()
+    
+    # Process nodes
+    nodes = result['f']
+    master_key_a32 = string_to_a32(makestring(current_session.master_key))
+    
+    for node_data in nodes:
+        try:
+            processed_node = _process_node(node_data, master_key_a32)
+            if processed_node:
+                fs_tree.add_node(processed_node)
+        except Exception as e:
+            logger.warning(f"Failed to process node {node_data.get('h', 'unknown')}: {e}")
+    
+    fs_tree.mark_refreshed()
+    logger.info(f"Filesystem refreshed: {len(fs_tree.nodes)} nodes loaded")
+
+
+def _process_node(node_data: Dict[str, Any], master_key: List[int]) -> Optional[MegaNode]:
+    """
+    Process a single node from API response.
+    """
+    try:
+        # Decrypt node key if present
+        if 'k' in node_data and isinstance(node_data['k'], str):
+            # Parse key data
+            key_parts = node_data['k'].split(':')
+            if len(key_parts) >= 2:
+                encrypted_key = base64_to_a32(key_parts[1])
+                node_key = decrypt_key(encrypted_key, master_key)
+                node_data['key'] = node_key
+                
+                # For files, extract decryption key (first 4 elements)
+                if node_data.get('t') == NODE_TYPE_FILE:
+                    node_data['k'] = node_key[:4]
+        
+        # Decrypt attributes if present
+        if 'a' in node_data and isinstance(node_data['a'], str):
+            try:
+                if 'key' in node_data:
+                    attr_key = makebyte(a32_to_string(node_data['key'][:4]))
+                    decrypted_attr = decrypt_attr(node_data['a'], attr_key)
+                    node_data['a'] = decrypted_attr
+                else:
+                    # Cannot decrypt without key
+                    node_data['a'] = {}
+            except Exception:
+                node_data['a'] = {}
+        
+        return MegaNode(node_data)
+        
+    except Exception as e:
+        logger.warning(f"Failed to process node: {e}")
+        return None
+
+
+def list_folder(folder_handle: Optional[str] = None) -> List[MegaNode]:
+    """
+    List contents of a folder.
+    
+    Args:
+        folder_handle: Handle of folder to list (None for root)
+        
+    Returns:
+        List of nodes in the folder
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    # Refresh filesystem if needed
+    if fs_tree.needs_refresh() or not fs_tree.nodes:
+        refresh_filesystem()
+    
+    # Use root if no handle specified
+    if folder_handle is None:
+        folder_handle = fs_tree.root_handle
+    
+    if not folder_handle:
+        return []
+    
+    return fs_tree.get_children(folder_handle)
+
+
+def get_node_by_path(path: str) -> Optional[MegaNode]:
+    """
+    Get node by path.
+    
+    Args:
+        path: Path to the node
+        
+    Returns:
+        Node if found, None otherwise
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    # Refresh filesystem if needed
+    if fs_tree.needs_refresh() or not fs_tree.nodes:
+        refresh_filesystem()
+    
+    return fs_tree.get_node_by_path(path)
+
+
+def create_folder(name: str, parent_handle: Optional[str] = None) -> MegaNode:
+    """
+    Create a new folder.
+    
+    Args:
+        name: Name of the folder
+        parent_handle: Parent folder handle (None for root)
+        
+    Returns:
+        Created folder node
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    # Use root if no parent specified
+    if parent_handle is None:
+        if fs_tree.needs_refresh() or not fs_tree.nodes:
+            refresh_filesystem()
+        parent_handle = fs_tree.root_handle
+    
+    # Create folder attributes
+    attributes = {'n': name}
+    attr_str = json.dumps(attributes, separators=(',', ':'))
+    
+    # Generate random key
+    folder_key = [random.getrandbits(32) for _ in range(4)]
+    
+    # Encrypt attributes
+    attr_key = makebyte(a32_to_string(folder_key))
+    encrypted_attr = encrypt_attr(attributes)
+    
+    # Create command
+    command = {
+        'a': 'p',
+        't': parent_handle,
+        'n': [{
+            'h': 'xxxxxxxx',
+            't': NODE_TYPE_FOLDER,
+            'a': encrypted_attr,
+            'k': a32_to_base64(folder_key),
+        }]
+    }
+    
+    result = single_api_request(command, current_session.session_id)
+    
+    if not isinstance(result, dict) or 'f' not in result:
+        raise RequestError("Failed to create folder")
+    
+    # Process created folder
+    new_node_data = result['f'][0]
+    new_node_data['key'] = folder_key
+    new_node_data['a'] = attributes
+    new_node = MegaNode(new_node_data)
+    
+    # Add to tree
+    fs_tree.add_node(new_node)
+    
+    return new_node
+
+
+def upload_file(local_path: str, remote_path: str = "/", 
+               progress_callback: Optional[Callable] = None) -> MegaNode:
+    """
+    Upload a file to Mega.
+    
+    Args:
+        local_path: Local file path
+        remote_path: Remote folder path
+        progress_callback: Optional progress callback
+        
+    Returns:
+        Uploaded file node
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    if not os.path.exists(local_path):
+        raise ValidationError("Local file does not exist")
+    
+    file_size = os.path.getsize(local_path)
+    file_name = os.path.basename(local_path)
+    
+    # Get parent folder
+    parent_node = get_node_by_path(remote_path)
+    if not parent_node or not parent_node.is_folder():
+        raise RequestError("Remote folder does not exist")
+    
+    # Generate file key and IV
+    file_key = [random.getrandbits(32) for _ in range(6)]
+    file_iv = file_key[4:6] + [0, 0]
+    
+    # Get upload URL
+    upload_url = get_upload_url(file_size)
+    
+    # Upload file chunks
+    mac_data = [0, 0, 0, 0]
+    
+    try:
+        with open(local_path, 'rb') as f:
+            for chunk_start, chunk_end in get_chunks(file_size):
+                chunk_data = f.read(chunk_end - chunk_start)
+                
+                # Encrypt chunk
+                chunk_iv = file_iv.copy()
+                chunk_iv[0] = chunk_start // 16
+                encrypted_chunk = aes_ctr_encrypt_decrypt(
+                    chunk_data,
+                    makebyte(a32_to_string(file_key[:4])),
+                    makebyte(a32_to_string(chunk_iv))
+                )
+                
+                # Calculate MAC
+                chunk_mac = calculate_chunk_mac(file_key[:4], chunk_start, chunk_data)
+                for i in range(4):
+                    mac_data[i] ^= chunk_mac[i]
+                
+                # Upload chunk
+                upload_chunk(upload_url, encrypted_chunk, chunk_start)
+                
+                # Progress callback
+                if progress_callback:
+                    progress_callback(chunk_end, file_size)
+    
+    except Exception as e:
+        raise RequestError(f"Upload failed: {e}")
+    
+    # Create file attributes
+    attributes = {'n': file_name}
+    attr_key = makebyte(a32_to_string(file_key[:4]))
+    encrypted_attr = encrypt_attr(attributes)
+    
+    # Complete upload
+    completion_handle = upload_url.split('/')[-1]
+    meta_mac = [mac_data[0] ^ mac_data[1], mac_data[2] ^ mac_data[3]]
+    
+    command = {
+        'a': 'p',
+        't': parent_node.handle,
+        'n': [{
+            'h': completion_handle,
+            't': NODE_TYPE_FILE,
+            'a': encrypted_attr,
+            'k': a32_to_base64(file_key),
+            's': file_size,
+        }]
+    }
+    
+    result = single_api_request(command, current_session.session_id)
+    
+    if not isinstance(result, dict) or 'f' not in result:
+        raise RequestError("Failed to complete upload")
+    
+    # Process uploaded file
+    new_node_data = result['f'][0]
+    new_node_data['key'] = file_key
+    new_node_data['a'] = attributes
+    new_node = MegaNode(new_node_data)
+    
+    # Add to tree
+    fs_tree.add_node(new_node)
+    
+    return new_node
+
+
+def download_file(handle: str, output_path: str, 
+                 progress_callback: Optional[Callable] = None) -> bool:
+    """
+    Download a file from Mega.
+    
+    Args:
+        handle: File handle to download
+        output_path: Local path to save file
+        progress_callback: Optional progress callback
+        
+    Returns:
+        True if download successful
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    # Get node
+    node = fs_tree.get_node(handle)
+    if not node or not node.is_file():
+        raise RequestError("File not found")
+    
+    if not node.key:
+        raise RequestError("File key not available")
+    
+    # Get download URL
+    download_url = get_download_url(handle)
+    
+    # Download and decrypt file
+    try:
+        with open(output_path, 'wb') as f:
+            for chunk_start, chunk_end in get_chunks(node.size):
+                # Download chunk
+                encrypted_chunk = download_chunk(download_url, chunk_start, chunk_end - 1)
+                
+                # Decrypt chunk
+                chunk_iv = node.file_iv.copy()
+                chunk_iv[0] = chunk_start // 16
+                decrypted_chunk = aes_ctr_encrypt_decrypt(
+                    encrypted_chunk,
+                    makebyte(a32_to_string(node.key[:4])),
+                    makebyte(a32_to_string(chunk_iv))
+                )
+                
+                # Handle final chunk padding
+                if chunk_end == node.size:
+                    actual_chunk_size = node.size - chunk_start
+                    decrypted_chunk = decrypted_chunk[:actual_chunk_size]
+                
+                f.write(decrypted_chunk)
+                
+                # Progress callback
+                if progress_callback:
+                    progress_callback(chunk_end, node.size)
+        
+        return True
+        
+    except Exception as e:
+        # Clean up partial file
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise RequestError(f"Download failed: {e}")
+
+
+def delete_node(handle: str) -> bool:
+    """
+    Delete a node (file or folder).
+    
+    Args:
+        handle: Node handle to delete
+        
+    Returns:
+        True if deletion successful
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    command = {'a': 'd', 'n': handle}
+    
+    try:
+        single_api_request(command, current_session.session_id)
+        
+        # Remove from tree
+        if handle in fs_tree.nodes:
+            del fs_tree.nodes[handle]
+        
+        # Remove from children mappings
+        for parent_handle, children in fs_tree.children.items():
+            if handle in children:
+                children.remove(handle)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Delete failed: {e}")
+        return False
+
+
+def move_node(handle: str, new_parent_handle: str) -> bool:
+    """
+    Move a node to a different parent folder.
+    
+    Args:
+        handle: Node handle to move
+        new_parent_handle: New parent folder handle
+        
+    Returns:
+        True if move successful
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    command = {'a': 'm', 'n': handle, 't': new_parent_handle}
+    
+    try:
+        single_api_request(command, current_session.session_id)
+        
+        # Update tree
+        node = fs_tree.get_node(handle)
+        if node:
+            # Remove from old parent
+            old_parent = node.parent_handle
+            if old_parent in fs_tree.children and handle in fs_tree.children[old_parent]:
+                fs_tree.children[old_parent].remove(handle)
+            
+            # Add to new parent
+            if new_parent_handle not in fs_tree.children:
+                fs_tree.children[new_parent_handle] = []
+            fs_tree.children[new_parent_handle].append(handle)
+            
+            # Update node
+            node.parent_handle = new_parent_handle
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Move failed: {e}")
+        return False
+
+
+def rename_node(handle: str, new_name: str) -> bool:
+    """
+    Rename a node.
+    
+    Args:
+        handle: Node handle to rename
+        new_name: New name for the node
+        
+    Returns:
+        True if rename successful
+    """
+    if not current_session.is_authenticated:
+        raise RequestError("Not logged in")
+    
+    node = fs_tree.get_node(handle)
+    if not node:
+        raise RequestError("Node not found")
+    
+    # Update attributes
+    new_attributes = node.attributes.copy()
+    new_attributes['n'] = new_name
+    
+    # Encrypt new attributes
+    if node.key:
+        attr_key = makebyte(a32_to_string(node.key[:4]))
+        encrypted_attr = encrypt_attr(new_attributes)
+    else:
+        raise RequestError("Node key not available")
+    
+    command = {'a': 'a', 'n': handle, 'attr': encrypted_attr}
+    
+    try:
+        single_api_request(command, current_session.session_id)
+        
+        # Update node
+        node.attributes = new_attributes
+        node.name = new_name
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Rename failed: {e}")
+        return False
+
+
+def format_size(size_bytes: int) -> str:
+    """
+    Format file size in human-readable format.
+    
+    Args:
+        size_bytes: Size in bytes
+        
+    Returns:
+        Formatted size string
+    """
+    if size_bytes == 0:
+        return "0 B"
+    
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    size = float(size_bytes)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    if unit_index == 0:
+        return f"{int(size)} {units[unit_index]}"
+    else:
+        return f"{size:.1f} {units[unit_index]}"
+
+
+# Event-enabled filesystem functions
+def refresh_filesystem_with_events(event_callback=None) -> None:
+    """Refresh filesystem with event callbacks."""
+    if event_callback:
+        event_callback('filesystem_refresh_started', {})
+    
+    try:
+        refresh_filesystem()
+        if event_callback:
+            event_callback('filesystem_refresh_completed', {'nodes_count': len(fs_tree.nodes)})
+    except Exception as e:
+        if event_callback:
+            event_callback('filesystem_refresh_failed', {'error': str(e)})
+        raise
+
+
+def create_folder_with_events(name: str, parent_handle: Optional[str] = None, 
+                             event_callback=None) -> MegaNode:
+    """Create folder with event callbacks."""
+    if event_callback:
+        event_callback('folder_creation_started', {'name': name})
+    
+    try:
+        result = create_folder(name, parent_handle)
+        if event_callback:
+            event_callback('folder_creation_completed', {'name': name, 'handle': result.handle})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('folder_creation_failed', {'name': name, 'error': str(e)})
+        raise
+
+
+def upload_file_with_events(local_path: str, remote_path: str = "/", 
+                           event_callback=None) -> MegaNode:
+    """Upload file with event callbacks."""
+    file_name = os.path.basename(local_path)
+    if event_callback:
+        event_callback('upload_started', {'file': file_name})
+    
+    def progress_wrapper(bytes_uploaded, total_bytes):
+        if event_callback:
+            event_callback('upload_progress', {
+                'file': file_name,
+                'bytes_uploaded': bytes_uploaded,
+                'total_bytes': total_bytes,
+                'percentage': (bytes_uploaded / total_bytes) * 100
+            })
+    
+    try:
+        result = upload_file(local_path, remote_path, progress_wrapper)
+        if event_callback:
+            event_callback('upload_completed', {'file': file_name, 'handle': result.handle})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('upload_failed', {'file': file_name, 'error': str(e)})
+        raise
+
+
+def download_file_with_events(handle: str, output_path: str, 
+                             event_callback=None) -> bool:
+    """Download file with event callbacks."""
+    node = fs_tree.get_node(handle)
+    file_name = node.name if node else handle
+    
+    if event_callback:
+        event_callback('download_started', {'file': file_name})
+    
+    def progress_wrapper(bytes_downloaded, total_bytes):
+        if event_callback:
+            event_callback('download_progress', {
+                'file': file_name,
+                'bytes_downloaded': bytes_downloaded,
+                'total_bytes': total_bytes,
+                'percentage': (bytes_downloaded / total_bytes) * 100
+            })
+    
+    try:
+        result = download_file(handle, output_path, progress_wrapper)
+        if event_callback:
+            event_callback('download_completed', {'file': file_name})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('download_failed', {'file': file_name, 'error': str(e)})
+        raise
+
+
+def delete_node_with_events(handle: str, event_callback=None) -> bool:
+    """Delete node with event callbacks."""
+    node = fs_tree.get_node(handle)
+    name = node.name if node else handle
+    
+    if event_callback:
+        event_callback('deletion_started', {'name': name})
+    
+    try:
+        result = delete_node(handle)
+        if event_callback:
+            event_callback('deletion_completed', {'name': name, 'success': result})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('deletion_failed', {'name': name, 'error': str(e)})
+        raise
+
+
+def move_node_with_events(handle: str, new_parent_handle: str, 
+                         event_callback=None) -> bool:
+    """Move node with event callbacks."""
+    node = fs_tree.get_node(handle)
+    name = node.name if node else handle
+    
+    if event_callback:
+        event_callback('move_started', {'name': name})
+    
+    try:
+        result = move_node(handle, new_parent_handle)
+        if event_callback:
+            event_callback('move_completed', {'name': name, 'success': result})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('move_failed', {'name': name, 'error': str(e)})
+        raise
+
+
+def rename_node_with_events(handle: str, new_name: str, 
+                           event_callback=None) -> bool:
+    """Rename node with event callbacks."""
+    if event_callback:
+        event_callback('rename_started', {'old_name': fs_tree.get_node(handle).name if fs_tree.get_node(handle) else handle, 'new_name': new_name})
+    
+    try:
+        result = rename_node(handle, new_name)
+        if event_callback:
+            event_callback('rename_completed', {'new_name': new_name, 'success': result})
+        return result
+    except Exception as e:
+        if event_callback:
+            event_callback('rename_failed', {'new_name': new_name, 'error': str(e)})
+        raise
+
+
 # This is the beginning of the merged file structure
 # More content will be added as we continue merging the modules
 logger.info(f"MegaPythonLibrary v{__version__} (merged) initializing...")
