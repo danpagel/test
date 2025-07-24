@@ -1,0 +1,33 @@
+2025-07-24 17:39:47,937 - INFO - MegaPythonLibrary v2.5.0-merged (merged) fully loaded - 43 exports available
+2025-07-24 17:39:47,937 - INFO - Ready for use! Try: client = MPLClient(); client.login('email', 'password')
+2025-07-24 17:39:48,022 - INFO - MPLClient initialized
+2025-07-24 17:39:48,024 - INFO - MPLClient initialized
+2025-07-24 17:39:49,027 - INFO - Logging in user: danpagel.dp@outlook.com
+2025-07-24 17:39:49,456 - INFO - Detected v2 user account (with salt)
+2025-07-24 17:39:49,836 - INFO - Successfully logged in as danpagel.dp@outlook.com
+2025-07-24 17:39:49,836 - INFO - Refreshing filesystem...
+2025-07-24 17:39:51,202 - WARNING - Slow request: POST https://g.api.mega.co.nz/cs took 1.37s
+2025-07-24 17:39:51,234 - INFO - Filesystem refreshed: 91 nodes loaded
+2025-07-24 17:40:00,426 - INFO - Successfully logged out
+2025-07-24 17:40:00,435 - INFO - Logging in user: danpagel.dp@outlook.com
+2025-07-24 17:40:00,667 - INFO - Detected v2 user account (with salt)
+2025-07-24 17:40:01,059 - INFO - Successfully logged in as danpagel.dp@outlook.com
+2025-07-24 17:40:01,059 - INFO - Refreshing filesystem...
+2025-07-24 17:40:01,293 - INFO - Filesystem refreshed: 91 nodes loaded
+2025-07-24 17:40:02,446 - INFO - Successfully logged out
+2025-07-24 17:41:35,583 - INFO - MegaPythonLibrary v2.5.0-merged (merged) fully loaded - 43 exports available
+2025-07-24 17:41:35,584 - INFO - Ready for use! Try: client = MPLClient(); client.login('email', 'password')
+2025-07-24 17:41:35,637 - INFO - MPLClient initialized
+2025-07-24 17:41:35,639 - INFO - MPLClient initialized
+2025-07-24 17:41:36,641 - INFO - Logging in user: danpagel.dp@outlook.com
+2025-07-24 17:41:37,087 - INFO - Detected v2 user account (with salt)
+2025-07-24 17:41:37,458 - INFO - Successfully logged in as danpagel.dp@outlook.com
+2025-07-24 17:41:37,458 - INFO - Refreshing filesystem...
+2025-07-24 17:41:37,685 - INFO - Filesystem refreshed: 91 nodes loaded
+2025-07-24 17:41:47,652 - INFO - Successfully logged out
+2025-07-24 17:41:47,655 - INFO - Logging in user: danpagel.dp@outlook.com
+2025-07-24 17:41:47,802 - INFO - Detected v2 user account (with salt)
+2025-07-24 17:41:48,356 - INFO - Successfully logged in as danpagel.dp@outlook.com
+2025-07-24 17:41:48,360 - INFO - Refreshing filesystem...
+2025-07-24 17:41:48,566 - INFO - Filesystem refreshed: 92 nodes loaded
+2025-07-24 17:41:49,710 - INFO - Successfully logged out

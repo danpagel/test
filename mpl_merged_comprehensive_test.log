@@ -1,0 +1,16 @@
+2025-07-24 17:43:38,779 - INFO - MegaPythonLibrary v2.5.0-merged (merged) fully loaded - 43 exports available
+2025-07-24 17:43:38,779 - INFO - Ready for use! Try: client = MPLClient(); client.login('email', 'password')
+2025-07-24 17:43:38,804 - INFO - MPLClient initialized
+2025-07-24 17:43:38,808 - INFO - MPLClient initialized
+2025-07-24 17:43:39,317 - INFO - Logging in user: danpagel.dp@outlook.com
+2025-07-24 17:43:39,754 - INFO - Detected v2 user account (with salt)
+2025-07-24 17:43:40,169 - INFO - Successfully logged in as danpagel.dp@outlook.com
+2025-07-24 17:43:40,169 - INFO - Refreshing filesystem...
+2025-07-24 17:43:40,403 - INFO - Filesystem refreshed: 92 nodes loaded
+2025-07-24 17:43:43,693 - INFO - Successfully logged out
+2025-07-24 17:43:43,697 - INFO - Logging in user: danpagel.dp@outlook.com
+2025-07-24 17:43:44,068 - INFO - Detected v2 user account (with salt)
+2025-07-24 17:43:44,460 - INFO - Successfully logged in as danpagel.dp@outlook.com
+2025-07-24 17:43:44,464 - INFO - Refreshing filesystem...
+2025-07-24 17:43:44,715 - INFO - Filesystem refreshed: 93 nodes loaded
+2025-07-24 17:43:46,033 - INFO - Successfully logged out
