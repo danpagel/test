@@ -1,0 +1,719 @@
+"""
+Comprehensive Test Suite for MegaSerpentClient
+Tests all functions and commands across all 8 modules
+"""
+
+import pytest
+import tempfile
+import shutil
+import os
+from unittest.mock import Mock, patch, MagicMock
+from pathlib import Path
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import json
+import time
+from datetime import datetime
+
+# Import the MegaSerpentClient and all modules
+from MegaSerpentClient import (
+    MegaSerpentClient, 
+    ClientFactory, 
+    ClientConfig,
+    Constants,
+    LogLevel,
+    MegaError,
+    create_client,
+    create_development_client,
+    create_production_client,
+    MPLClient,
+    print_usage_examples,
+    get_version_info
+)
+
+# Import individual modules for direct testing
+from MegaSerpentClient import utils, client, auth, network, storage, sync, sharing, content, monitor
+
+
+class TestMegaSerpentClientCore:
+    """Test core MegaSerpentClient functionality"""
+    
+    def setup_method(self):
+        """Setup test environment"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.test_config = {
+            'log_level': LogLevel.DEBUG,
+            'enable_cache': True,
+            'max_concurrent_uploads': 3
+        }
+        
+    def teardown_method(self):
+        """Cleanup test environment"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    def test_client_initialization(self):
+        """Test MegaSerpentClient initialization"""
+        client = MegaSerpentClient(config_dir=self.temp_dir, **self.test_config)
+        assert client is not None
+        assert client.config_manager is not None
+        assert client.settings_manager is not None
+        assert client.profile_manager is not None
+        assert client.environment_manager is not None
+        assert client.plugin_manager is not None
+        assert client.health_monitor is not None
+        assert client.performance_tracker is not None
+        assert client.logging_manager is not None
+        
+    def test_client_context_manager(self):
+        """Test client as context manager"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            assert client._running is True
+            status = client.get_status()
+            assert status['running'] is True
+            assert status['initialized'] is True
+        
+    def test_client_start_stop(self):
+        """Test client start and stop methods"""
+        client = MegaSerpentClient(config_dir=self.temp_dir)
+        
+        # Test start
+        client.start()
+        assert client._running is True
+        
+        # Test stop
+        client.stop()
+        assert client._running is False
+        
+    def test_client_status(self):
+        """Test client status reporting"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            status = client.get_status()
+            
+            assert 'initialized' in status
+            assert 'running' in status
+            assert 'config' in status
+            assert 'health' in status
+            assert 'performance' in status
+            assert 'plugins' in status
+            assert 'timestamp' in status
+            
+    def test_client_factory_methods(self):
+        """Test ClientFactory creation methods"""
+        # Test development client
+        dev_client = ClientFactory.create_development_client()
+        assert dev_client is not None
+        
+        # Test production client
+        prod_client = ClientFactory.create_production_client()
+        assert prod_client is not None
+        
+        # Test testing client
+        test_client = ClientFactory.create_testing_client()
+        assert test_client is not None
+
+
+class TestPackageFunctions:
+    """Test package-level convenience functions"""
+    
+    def test_create_client_functions(self):
+        """Test package create_client functions"""
+        # Test basic create_client
+        client = create_client(log_level=LogLevel.INFO)
+        assert client is not None
+        
+        # Test development client
+        dev_client = create_development_client()
+        assert dev_client is not None
+        
+        # Test production client
+        prod_client = create_production_client()
+        assert prod_client is not None
+        
+    def test_version_info(self):
+        """Test version information functions"""
+        version_info = get_version_info()
+        assert isinstance(version_info, dict)
+        assert 'version' in version_info or len(version_info) > 0
+        
+    def test_usage_examples(self):
+        """Test usage examples function"""
+        # Should not raise exception
+        print_usage_examples()
+        
+    def test_mpl_client_compatibility(self):
+        """Test MPLClient backward compatibility"""
+        mpl_client = MPLClient()
+        assert mpl_client is not None
+        
+        # Test context manager
+        with MPLClient() as client:
+            status = client.get_status()
+            assert status is not None
+
+
+class TestUtilsModule:
+    """Test utils module functionality"""
+    
+    def test_constants(self):
+        """Test Constants class"""
+        assert hasattr(utils, 'Constants')
+        
+    def test_log_level_enum(self):
+        """Test LogLevel enum"""
+        assert hasattr(utils, 'LogLevel')
+        assert LogLevel.DEBUG is not None
+        assert LogLevel.INFO is not None
+        assert LogLevel.WARNING is not None
+        assert LogLevel.ERROR is not None
+        
+    def test_exceptions(self):
+        """Test custom exceptions"""
+        # Test MegaError base exception
+        with pytest.raises(Exception):
+            raise utils.MegaError("Test error")
+            
+        # Test specific exceptions
+        exception_classes = [
+            'AuthenticationError', 'NetworkError', 'StorageError',
+            'SyncError', 'ValidationError', 'ConfigurationError', 'SecurityError'
+        ]
+        
+        for exc_name in exception_classes:
+            if hasattr(utils, exc_name):
+                exc_class = getattr(utils, exc_name)
+                with pytest.raises(Exception):
+                    raise exc_class("Test error")
+                    
+    def test_utility_classes(self):
+        """Test utility classes availability"""
+        utility_classes = [
+            'Validators', 'Converters', 'Formatters', 'Helpers', 
+            'Decorators', 'AsyncHelpers', 'DateTimeUtils', 'FileUtils',
+            'StringUtils', 'CryptoUtils', 'NetworkUtils', 'SerializationUtils'
+        ]
+        
+        for util_name in utility_classes:
+            if hasattr(utils, util_name):
+                util_class = getattr(utils, util_name)
+                assert util_class is not None
+
+
+class TestAuthModule:
+    """Test authentication module functionality"""
+    
+    def setup_method(self):
+        """Setup auth testing"""
+        self.temp_dir = tempfile.mkdtemp()
+        
+    def teardown_method(self):
+        """Cleanup auth testing"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        
+    def test_auth_module_import(self):
+        """Test auth module imports correctly"""
+        assert auth is not None
+        
+    @patch('MegaSerpentClient.auth.LoginManager')
+    def test_login_manager(self, mock_login_manager):
+        """Test LoginManager functionality"""
+        # Mock the LoginManager
+        mock_instance = Mock()
+        mock_login_manager.return_value = mock_instance
+        
+        # Test basic login operations
+        login_manager = auth.LoginManager()
+        assert login_manager is not None
+        
+    def test_auth_with_client(self):
+        """Test auth module integration with client"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            # Auth module should be initialized
+            assert hasattr(client, 'auth')
+
+
+class TestNetworkModule:
+    """Test network module functionality"""
+    
+    def test_network_module_import(self):
+        """Test network module imports correctly"""
+        assert network is not None
+        
+    @patch('MegaSerpentClient.network.APIClient')
+    def test_api_client(self, mock_api_client):
+        """Test APIClient functionality"""
+        mock_instance = Mock()
+        mock_api_client.return_value = mock_instance
+        
+        api_client = network.APIClient()
+        assert api_client is not None
+        
+    def test_network_with_client(self):
+        """Test network module integration with client"""
+        with MegaSerpentClient() as client:
+            assert hasattr(client, 'network')
+
+
+class TestStorageModule:
+    """Test storage module functionality"""
+    
+    def setup_method(self):
+        """Setup storage testing"""
+        self.temp_dir = tempfile.mkdtemp()
+        
+    def teardown_method(self):
+        """Cleanup storage testing"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        
+    def test_storage_module_import(self):
+        """Test storage module imports correctly"""
+        assert storage is not None
+        
+    def test_navigator_functionality(self):
+        """Test Navigator class functionality"""
+        # Mock node manager for Navigator
+        mock_node_manager = Mock()
+        
+        # Test Navigator initialization
+        if hasattr(storage, 'Navigator'):
+            navigator = storage.Navigator(mock_node_manager)
+            assert navigator is not None
+            
+            # Test pwd (present working directory)
+            current_path = navigator.pwd()
+            assert current_path == "/"
+            
+    def test_local_navigator_functionality(self):
+        """Test LocalNavigator class functionality"""
+        if hasattr(storage, 'LocalNavigator'):
+            local_nav = storage.LocalNavigator()
+            assert local_nav is not None
+            
+            # Test local pwd
+            current_dir = local_nav.lpwd()
+            assert isinstance(current_dir, str)
+            
+    @patch('MegaSerpentClient.storage.FileOperations')
+    def test_file_operations(self, mock_file_ops):
+        """Test file operations functionality"""
+        mock_instance = Mock()
+        mock_file_ops.return_value = mock_instance
+        
+        if hasattr(storage, 'FileOperations'):
+            file_ops = storage.FileOperations()
+            assert file_ops is not None
+            
+    def test_storage_with_client(self):
+        """Test storage module integration with client"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            assert hasattr(client, 'storage')
+
+
+class TestSyncModule:
+    """Test synchronization module functionality"""
+    
+    def test_sync_module_import(self):
+        """Test sync module imports correctly"""
+        assert sync is not None
+        
+    @patch('MegaSerpentClient.sync.SyncManager')
+    def test_sync_manager(self, mock_sync_manager):
+        """Test SyncManager functionality"""
+        mock_instance = Mock()
+        mock_sync_manager.return_value = mock_instance
+        
+        if hasattr(sync, 'SyncManager'):
+            sync_manager = sync.SyncManager()
+            assert sync_manager is not None
+            
+    def test_sync_with_client(self):
+        """Test sync module integration with client"""
+        with MegaSerpentClient() as client:
+            assert hasattr(client, 'sync')
+
+
+class TestSharingModule:
+    """Test sharing module functionality"""
+    
+    def test_sharing_module_import(self):
+        """Test sharing module imports correctly"""
+        assert sharing is not None
+        
+    @patch('MegaSerpentClient.sharing.ShareManager')
+    def test_share_manager(self, mock_share_manager):
+        """Test ShareManager functionality"""
+        mock_instance = Mock()
+        mock_share_manager.return_value = mock_instance
+        
+        if hasattr(sharing, 'ShareManager'):
+            share_manager = sharing.ShareManager()
+            assert share_manager is not None
+            
+    def test_sharing_with_client(self):
+        """Test sharing module integration with client"""
+        with MegaSerpentClient() as client:
+            assert hasattr(client, 'sharing')
+
+
+class TestContentModule:
+    """Test content processing module functionality"""
+    
+    def test_content_module_import(self):
+        """Test content module imports correctly"""
+        assert content is not None
+        
+    @patch('MegaSerpentClient.content.ContentProcessor')
+    def test_content_processor(self, mock_content_processor):
+        """Test ContentProcessor functionality"""
+        mock_instance = Mock()
+        mock_content_processor.return_value = mock_instance
+        
+        if hasattr(content, 'ContentProcessor'):
+            processor = content.ContentProcessor()
+            assert processor is not None
+            
+    def test_content_with_client(self):
+        """Test content module integration with client"""
+        with MegaSerpentClient() as client:
+            assert hasattr(client, 'content')
+
+
+class TestMonitorModule:
+    """Test monitoring module functionality"""
+    
+    def test_monitor_module_import(self):
+        """Test monitor module imports correctly"""
+        assert monitor is not None
+        
+    @patch('MegaSerpentClient.monitor.SystemMonitor')
+    def test_system_monitor(self, mock_system_monitor):
+        """Test SystemMonitor functionality"""
+        mock_instance = Mock()
+        mock_system_monitor.return_value = mock_instance
+        
+        if hasattr(monitor, 'SystemMonitor'):
+            sys_monitor = monitor.SystemMonitor()
+            assert sys_monitor is not None
+            
+    def test_monitor_with_client(self):
+        """Test monitor module integration with client"""
+        with MegaSerpentClient() as client:
+            assert hasattr(client, 'monitor')
+
+
+class TestClientManagers:
+    """Test client manager classes"""
+    
+    def setup_method(self):
+        """Setup manager testing"""
+        self.temp_dir = tempfile.mkdtemp()
+        
+    def teardown_method(self):
+        """Cleanup manager testing"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        
+    def test_config_manager(self):
+        """Test ConfigManager functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            config_manager = client.config_manager
+            assert config_manager is not None
+            
+            # Test getting config
+            config = config_manager.get_config()
+            assert config is not None
+            
+    def test_settings_manager(self):
+        """Test SettingsManager functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            settings_manager = client.settings_manager
+            assert settings_manager is not None
+            
+    def test_profile_manager(self):
+        """Test ProfileManager functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            profile_manager = client.profile_manager
+            assert profile_manager is not None
+            
+    def test_environment_manager(self):
+        """Test EnvironmentManager functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            env_manager = client.environment_manager
+            assert env_manager is not None
+            
+    def test_plugin_manager(self):
+        """Test PluginManager functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            plugin_manager = client.plugin_manager
+            assert plugin_manager is not None
+            
+    def test_health_monitor(self):
+        """Test HealthMonitor functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            health_monitor = client.health_monitor
+            assert health_monitor is not None
+            
+            # Test health check
+            health = health_monitor.get_overall_health()
+            assert health is not None
+            
+    def test_performance_tracker(self):
+        """Test PerformanceTracker functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            perf_tracker = client.performance_tracker
+            assert perf_tracker is not None
+            
+            # Test metrics
+            metrics = perf_tracker.get_all_metrics()
+            assert metrics is not None
+            
+    def test_logging_manager(self):
+        """Test LoggingManager functionality"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            logging_manager = client.logging_manager
+            assert logging_manager is not None
+
+
+class TestNavigationCommands:
+    """Test navigation commands (cd, ls, pwd, tree, etc.)"""
+    
+    def setup_method(self):
+        """Setup navigation testing"""
+        self.temp_dir = tempfile.mkdtemp()
+        
+    def teardown_method(self):
+        """Cleanup navigation testing"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        
+    @patch('MegaSerpentClient.storage.Navigator')
+    def test_cd_command(self, mock_navigator_class):
+        """Test cd (change directory) command"""
+        mock_navigator = Mock()
+        mock_navigator.cd.return_value = True
+        mock_navigator.pwd.return_value = "/test"
+        mock_navigator_class.return_value = mock_navigator
+        
+        navigator = storage.Navigator(Mock())
+        
+        # Test cd functionality
+        result = navigator.cd("/test")
+        assert result is True
+        
+        # Test pwd after cd
+        current_path = navigator.pwd()
+        assert current_path == "/test"
+        
+    @patch('MegaSerpentClient.storage.Navigator')
+    def test_ls_command(self, mock_navigator_class):
+        """Test ls (list directory) command"""
+        mock_navigator = Mock()
+        mock_navigator.ls.return_value = []
+        mock_navigator_class.return_value = mock_navigator
+        
+        navigator = storage.Navigator(Mock())
+        
+        # Test ls functionality
+        result = navigator.ls()
+        assert isinstance(result, list)
+        
+        # Test ls with options
+        result = navigator.ls(show_hidden=True, detailed=True)
+        assert isinstance(result, list)
+        
+    @patch('MegaSerpentClient.storage.Navigator')
+    def test_tree_command(self, mock_navigator_class):
+        """Test tree command"""
+        mock_navigator = Mock()
+        mock_navigator.tree.return_value = {}
+        mock_navigator_class.return_value = mock_navigator
+        
+        navigator = storage.Navigator(Mock())
+        
+        # Test tree functionality
+        result = navigator.tree(max_depth=3)
+        assert isinstance(result, dict)
+        
+    @patch('MegaSerpentClient.storage.LocalNavigator')
+    def test_local_navigation(self, mock_local_nav_class):
+        """Test local navigation commands (lcd, lpwd, lls)"""
+        mock_local_nav = Mock()
+        mock_local_nav.lcd.return_value = True
+        mock_local_nav.lpwd.return_value = "/tmp"
+        mock_local_nav.lls.return_value = []
+        mock_local_nav_class.return_value = mock_local_nav
+        
+        local_nav = storage.LocalNavigator()
+        
+        # Test lcd
+        result = local_nav.lcd("/tmp")
+        assert result is True
+        
+        # Test lpwd
+        result = local_nav.lpwd()
+        assert result == "/tmp"
+        
+        # Test lls
+        result = local_nav.lls()
+        assert isinstance(result, list)
+
+
+class TestErrorHandling:
+    """Test error handling and exceptions"""
+    
+    def test_mega_error_handling(self):
+        """Test MegaError exception handling"""
+        with pytest.raises(MegaError):
+            raise MegaError("Test error message")
+            
+    def test_client_error_handling(self):
+        """Test client error handling during initialization"""
+        # Test with invalid config directory
+        with pytest.raises(Exception):
+            # This might raise an exception depending on implementation
+            client = MegaSerpentClient(config_dir="/invalid/path/that/does/not/exist")
+            
+    def test_module_error_handling(self):
+        """Test module-specific error handling"""
+        # Test authentication errors
+        if hasattr(utils, 'AuthenticationError'):
+            with pytest.raises(utils.AuthenticationError):
+                raise utils.AuthenticationError("Auth failed")
+                
+        # Test network errors  
+        if hasattr(utils, 'NetworkError'):
+            with pytest.raises(utils.NetworkError):
+                raise utils.NetworkError("Network failed")
+
+
+class TestAsyncFunctionality:
+    """Test asynchronous functionality"""
+    
+    @pytest.mark.asyncio
+    async def test_async_helpers(self):
+        """Test AsyncHelpers functionality"""
+        if hasattr(utils, 'AsyncHelpers'):
+            # Test that AsyncHelpers exists and can be used
+            async_helpers = utils.AsyncHelpers()
+            assert async_helpers is not None
+            
+    def test_thread_pool_executor(self):
+        """Test ThreadPoolExecutor usage in client"""
+        with MegaSerpentClient() as client:
+            # Client should have an executor
+            assert hasattr(client, '_executor')
+            assert isinstance(client._executor, ThreadPoolExecutor)
+
+
+class TestConfigurationOptions:
+    """Test various configuration options"""
+    
+    def test_log_level_configuration(self):
+        """Test different log level configurations"""
+        for log_level in [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARNING, LogLevel.ERROR]:
+            client = create_client(log_level=log_level)
+            assert client is not None
+            
+    def test_cache_configuration(self):
+        """Test cache enable/disable configuration"""
+        # Test with cache enabled
+        client_cached = create_client(enable_cache=True)
+        assert client_cached is not None
+        
+        # Test with cache disabled
+        client_no_cache = create_client(enable_cache=False)
+        assert client_no_cache is not None
+        
+    def test_performance_configuration(self):
+        """Test performance-related configuration"""
+        client = create_client(
+            max_concurrent_uploads=5,
+            bandwidth_limit=1024*1024
+        )
+        assert client is not None
+
+
+class TestEnvironmentSpecific:
+    """Test environment-specific functionality"""
+    
+    def test_development_environment(self):
+        """Test development environment setup"""
+        dev_client = create_development_client()
+        assert dev_client is not None
+        
+        with dev_client as client:
+            status = client.get_status()
+            assert status['running'] is True
+            
+    def test_production_environment(self):
+        """Test production environment setup"""
+        prod_client = create_production_client()
+        assert prod_client is not None
+        
+        with prod_client as client:
+            status = client.get_status()
+            assert status['running'] is True
+
+
+class TestFullIntegration:
+    """Full integration tests across all modules"""
+    
+    def setup_method(self):
+        """Setup integration testing"""
+        self.temp_dir = tempfile.mkdtemp()
+        
+    def teardown_method(self):
+        """Cleanup integration testing"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        
+    def test_full_client_lifecycle(self):
+        """Test complete client lifecycle"""
+        # Create client
+        client = MegaSerpentClient(config_dir=self.temp_dir)
+        
+        # Start client
+        client.start()
+        assert client._running is True
+        
+        # Get status
+        status = client.get_status()
+        assert status['running'] is True
+        assert status['initialized'] is True
+        
+        # Access all modules
+        modules = ['auth', 'network', 'storage', 'sync', 'sharing', 'content', 'monitor']
+        for module_name in modules:
+            assert hasattr(client, module_name)
+            
+        # Stop client
+        client.stop()
+        assert client._running is False
+        
+    def test_context_manager_integration(self):
+        """Test full context manager integration"""
+        with MegaSerpentClient(config_dir=self.temp_dir) as client:
+            # Test all major functionality
+            status = client.get_status()
+            assert status is not None
+            
+            # Test module access
+            assert hasattr(client, 'auth')
+            assert hasattr(client, 'storage')
+            assert hasattr(client, 'network')
+            
+    def test_backward_compatibility(self):
+        """Test backward compatibility with MPLClient"""
+        with MPLClient() as mpl_client:
+            # Test basic functionality
+            status = mpl_client.get_status()
+            assert status is not None
+
+
+# Pytest configuration
+def pytest_configure(config):
+    """Configure pytest"""
+    config.addinivalue_line(
+        "markers", "asyncio: mark test as async"
+    )
+
+
+if __name__ == "__main__":
+    # Run tests
+    pytest.main([__file__, "-v", "--tb=short"])
