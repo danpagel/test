@@ -18,10 +18,10 @@ This is a merged version of the MegaPythonLibrary (MPL) that combines all 24 mod
 - Drop-in replacement for the entire mpl package
 - All 43 exported functions and classes available
 
-✅ **Self-contained and portable**
+✅ ***Self-contained and portable**
 - Single file: `mpl_merged.py` (3,705 lines)
 - Auto-installs missing dependencies (pycryptodome, requests)
-- No additional setup required
+- No additional setup required 
 
 ## Quick Start
 
