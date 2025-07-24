@@ -837,8 +837,13 @@ class LoggingManager:
         # Clear existing handlers
         self.logger.handlers.clear()
         
-        # Set log level
-        self.logger.setLevel(self.config.log_level.value)
+        # Set log level - handle both LogLevel enum and string values
+        if hasattr(self.config.log_level, 'value'):
+            level = self.config.log_level.value
+        else:
+            level = getattr(logging, str(self.config.log_level).upper(), logging.INFO)
+        
+        self.logger.setLevel(level)
         
         # Console handler
         console_handler = logging.StreamHandler()
@@ -1037,12 +1042,15 @@ class MegaSerpentClient:
     
     def get_status(self) -> Dict[str, Any]:
         """Get comprehensive client status."""
+        # Handle log level display 
+        log_level_name = getattr(self.config.log_level, 'name', str(self.config.log_level))
+        
         return {
             'initialized': self._initialized,
             'running': self._running,
             'config': {
                 'environment': self.config_manager._current_environment,
-                'log_level': self.config.log_level.name,
+                'log_level': log_level_name,
                 'cache_enabled': self.config.enable_cache
             },
             'health': self.health_monitor.get_overall_health().__dict__,
