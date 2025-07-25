@@ -1,3 +1,7 @@
+# ===============================================================================
+# === 1. CORE FOUNDATION (Header & Imports) ===
+# ===============================================================================
+
 """
 MegaPythonLibrary (MPL) - Merged Single File Implementation
 ==========================================================
@@ -157,6 +161,11 @@ else:
     
     def makestring(x: bytes) -> str:
         return codecs.latin_1_decode(x)[0]
+
+
+# ===============================================================================
+# === 2. EXCEPTION HANDLING (auth.py section) ===
+# ===============================================================================
 
 # ==============================================
 # === EXCEPTION CLASSES ===
@@ -476,6 +485,11 @@ def raise_mega_error(error_code: int) -> None:
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ===============================================================================
+# === 3. AUTHENTICATION & SECURITY (auth.py section) ===
+# ===============================================================================
 
 # ==============================================
 # === CRYPTOGRAPHIC UTILITIES ===
@@ -1159,411 +1173,6 @@ def get_chunks(size: int) -> List[Tuple[int, int]]:
 
 
 # ==============================================
-# === NETWORK AND API UTILITIES ===
-# ==============================================
-
-# Mega API endpoints
-MEGA_API_URL = "https://g.api.mega.co.nz/cs"
-MEGA_UPLOAD_URL = "https://eu.api.mega.co.nz/ufa"
-
-# Request configuration
-DEFAULT_TIMEOUT = 30
-MAX_RETRIES = 3
-RETRY_DELAY = 1.0
-MAX_RETRY_DELAY = 16.0
-
-# Request headers
-DEFAULT_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-}
-
-
-class RateLimiter:
-    """
-    Simple rate limiter for API requests.
-    """
-    
-    def __init__(self, requests_per_second: float = 1.0):
-        self.requests_per_second = requests_per_second
-        self.last_request_time = 0.0
-    
-    def wait_if_needed(self) -> None:
-        """Wait if necessary to respect rate limit."""
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-        min_interval = 1.0 / self.requests_per_second
-        
-        if time_since_last < min_interval:
-            sleep_time = min_interval - time_since_last
-            time.sleep(sleep_time)
-        
-        self.last_request_time = time.time()
-
-
-class APISession:
-    """
-    Manages HTTP session for API requests with automatic retry and error handling.
-    Enhanced with connection pooling and performance optimizations.
-    """
-    
-    def __init__(self):
-        self.session = requests.Session()
-        
-        # Configure connection pooling for better performance
-        from requests.adapters import HTTPAdapter
-        
-        adapter = HTTPAdapter(
-            pool_connections=10,    # Number of connection pools
-            pool_maxsize=20,       # Maximum connections per pool
-            max_retries=0,         # We handle retries manually
-            pool_block=False       # Don't block on pool exhaustion
-        )
-        
-        self.session.mount('https://', adapter)
-        self.session.mount('http://', adapter)
-        
-        # Set headers
-        self.session.headers.update(DEFAULT_HEADERS)
-        
-        # Session state
-        self.sequence_number = random.randint(0, 0x7FFFFFFF)
-        self.sid = None  # Session ID after login
-        
-        # Request caching
-        self._request_cache = {}
-        self._cache_timeout = 30  # seconds
-        
-        # Performance tracking
-        self.request_count = 0
-        self.total_request_time = 0.0
-        
-    def get_sequence_number(self) -> int:
-        """Get next sequence number for API requests."""
-        self.sequence_number += 1
-        return self.sequence_number
-    
-    def set_session_id(self, sid: str) -> None:
-        """Set session ID after successful login."""
-        self.sid = sid
-    
-    def get_performance_stats(self) -> dict:
-        """Get performance statistics for this session."""
-        avg_time = self.total_request_time / max(1, self.request_count)
-        return {
-            'total_requests': self.request_count,
-            'total_time': self.total_request_time,
-            'average_request_time': avg_time,
-            'cache_entries': len(self._request_cache)
-        }
-    
-    def clear_cache(self) -> None:
-        """Clear the request cache."""
-        self._request_cache.clear()
-    
-    def close(self) -> None:
-        """Close the session."""
-        self.session.close()
-        self._request_cache.clear()
-
-
-# Global session instance
-_api_session = APISession()
-
-# Global rate limiter
-_rate_limiter = RateLimiter(requests_per_second=0.5)  # Conservative rate
-
-
-def _check_cache(cache_key: str) -> Optional[requests.Response]:
-    """Check if we have a cached response for this key."""
-    if cache_key in _api_session._request_cache:
-        cached_data, timestamp = _api_session._request_cache[cache_key]
-        if time.time() - timestamp < _api_session._cache_timeout:
-            return cached_data
-        else:
-            # Remove expired cache entry
-            del _api_session._request_cache[cache_key]
-    return None
-
-
-def _cache_response(cache_key: str, response: requests.Response) -> None:
-    """Cache a response for future use."""
-    _api_session._request_cache[cache_key] = (response, time.time())
-
-
-def make_request(url: str, data: Any = None, method: str = 'POST', 
-                timeout: float = DEFAULT_TIMEOUT, cache_key: str = None, **kwargs) -> requests.Response:
-    """
-    Make HTTP request with retry logic, error handling, and performance optimizations.
-    
-    Args:
-        url: The URL to request
-        data: Request data (will be JSON encoded if dict)
-        method: HTTP method
-        timeout: Request timeout
-        cache_key: Optional cache key for GET requests
-        **kwargs: Additional arguments for requests
-        
-    Returns:
-        Response object
-        
-    Raises:
-        RequestError: If request fails after retries
-    """
-    start_time = time.time()
-    
-    # Check cache for GET requests
-    if method == 'GET' and cache_key:
-        cached_response = _check_cache(cache_key)
-        if cached_response:
-            logger.debug(f"Cache hit for {cache_key}")
-            return cached_response
-    
-    retries = 0
-    delay = RETRY_DELAY
-    
-    while retries <= MAX_RETRIES:
-        try:
-            # Prepare request data
-            if isinstance(data, (dict, list)):
-                kwargs['json'] = data
-            elif data is not None:
-                kwargs['data'] = data
-            
-            # Make request
-            response = _api_session.session.request(
-                method=method,
-                url=url,
-                timeout=timeout,
-                **kwargs
-            )
-            
-            # Check for HTTP errors
-            response.raise_for_status()
-            
-            # Cache successful GET responses
-            if method == 'GET' and cache_key and response.status_code == 200:
-                _cache_response(cache_key, response)
-            
-            # Track performance
-            request_time = time.time() - start_time
-            _api_session.request_count += 1
-            _api_session.total_request_time += request_time
-            
-            if request_time > 1.0:  # Log slow requests
-                logger.warning(f"Slow request: {method} {url} took {request_time:.2f}s")
-            
-            return response
-            
-        except requests.exceptions.Timeout:
-            if retries >= MAX_RETRIES:
-                raise RequestError(f"Request timeout after {MAX_RETRIES} retries")
-            
-        except requests.exceptions.ConnectionError as e:
-            if retries >= MAX_RETRIES:
-                raise RequestError(f"Connection error: {e}")
-            
-        except requests.exceptions.HTTPError as e:
-            # Don't retry client errors (4xx)
-            if 400 <= e.response.status_code < 500:
-                raise RequestError(f"HTTP {e.response.status_code}: {e.response.text}")
-            
-            # Retry server errors (5xx)
-            if retries >= MAX_RETRIES:
-                raise RequestError(f"HTTP {e.response.status_code}: {e.response.text}")
-        
-        except Exception as e:
-            if retries >= MAX_RETRIES:
-                raise RequestError(f"Request failed: {e}")
-        
-        # Wait before retry
-        retries += 1
-        if retries <= MAX_RETRIES:
-            logger.warning(f"Request failed, retrying in {delay}s (attempt {retries}/{MAX_RETRIES})")
-            time.sleep(delay)
-            delay = min(delay * 2, MAX_RETRY_DELAY)  # Exponential backoff
-    
-    raise RequestError("Maximum retries exceeded")
-
-
-def api_request(commands: List[Dict[str, Any]], sid: Optional[str] = None) -> List[Any]:
-    """
-    Make Mega API request with command list.
-    
-    Args:
-        commands: List of API command dictionaries
-        sid: Session ID (if authenticated)
-        
-    Returns:
-        List of API responses
-        
-    Raises:
-        RequestError: If API request fails
-        ValidationError: If response is invalid
-    """
-    # Build request URL
-    url = MEGA_API_URL
-    params = {'id': _api_session.get_sequence_number()}
-    
-    if sid:
-        params['sid'] = sid
-    elif _api_session.sid:
-        params['sid'] = _api_session.sid
-    
-    # Make request
-    response = make_request(url, data=commands, params=params)
-    
-    # Parse response
-    try:
-        result = response.json()
-    except json.JSONDecodeError as e:
-        raise ValidationError(f"Invalid JSON response: {e}")
-    
-    # Check for API errors
-    if isinstance(result, list):
-        for i, item in enumerate(result):
-            if isinstance(item, int) and item < 0:
-                raise_mega_error(item)
-    elif isinstance(result, int) and result < 0:
-        raise_mega_error(result)
-    
-    return result
-
-
-def single_api_request(command: Dict[str, Any], sid: Optional[str] = None) -> Any:
-    """
-    Make single Mega API request.
-    
-    Args:
-        command: API command dictionary
-        sid: Session ID (if authenticated)
-        
-    Returns:
-        API response
-    """
-    result = api_request([command], sid)
-    return result[0] if result else None
-
-
-def rate_limited_request(*args, **kwargs):
-    """
-    Make rate-limited API request.
-    
-    Args/kwargs passed to api_request()
-    """
-    _rate_limiter.wait_if_needed()
-    return api_request(*args, **kwargs)
-
-
-def get_upload_url(size: int) -> str:
-    """
-    Get upload URL for file of given size.
-    
-    Args:
-        size: File size in bytes
-        
-    Returns:
-        Upload URL
-        
-    Raises:
-        RequestError: If unable to get upload URL
-    """
-    command = {'a': 'u', 's': size}
-    result = single_api_request(command)
-    
-    if not isinstance(result, dict) or 'p' not in result:
-        raise RequestError("Invalid upload URL response")
-    
-    return result['p']
-
-
-def get_download_url(node_id: str) -> str:
-    """
-    Get download URL for node.
-    
-    Args:
-        node_id: The node ID to download
-        
-    Returns:
-        Download URL
-        
-    Raises:
-        RequestError: If unable to get download URL
-    """
-    command = {'a': 'g', 'g': 1, 'n': node_id}
-    result = single_api_request(command)
-    
-    if not isinstance(result, dict) or 'g' not in result:
-        raise RequestError("Invalid download URL response")
-    
-    return result['g']
-
-
-def upload_chunk(url: str, chunk_data: bytes, chunk_start: int) -> Dict[str, Any]:
-    """
-    Upload file chunk to Mega.
-    
-    Args:
-        url: Upload URL
-        chunk_data: Chunk data to upload
-        chunk_start: Starting position of chunk
-        
-    Returns:
-        Upload response with completion handle if this is the last chunk
-        
-    Raises:
-        RequestError: If upload fails
-    """
-    headers = {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': str(len(chunk_data)),
-    }
-    
-    # Add chunk position to URL
-    chunk_url = f"{url}/{chunk_start}"
-    
-    response = make_request(chunk_url, data=chunk_data, method='POST', headers=headers)
-    
-    # The response text contains the completion handle if this is the final chunk
-    if response.text and response.text.strip():
-        return {'handle': response.text.strip()}
-    else:
-        return {'status': 'ok'}
-
-
-def download_chunk(url: str, start: int, end: int) -> bytes:
-    """
-    Download file chunk from Mega.
-    
-    Args:
-        url: Download URL
-        start: Start byte position
-        end: End byte position
-        
-    Returns:
-        Chunk data
-        
-    Raises:
-        RequestError: If download fails
-    """
-    headers = {'Range': f'bytes={start}-{end}'}
-    
-    response = make_request(url, method='GET', headers=headers)
-    return response.content
-
-
-def get_network_performance_stats() -> dict:
-    """Get network performance statistics."""
-    return _api_session.get_performance_stats()
-
-
-def clear_network_cache() -> None:
-    """Clear the network request cache."""
-    _api_session.clear_cache()
-
-
-# ==============================================
 # === AUTHENTICATION AND SESSION MANAGEMENT ===
 # ==============================================
 
@@ -2194,6 +1803,421 @@ def change_password_with_events(old_password: str, new_password: str,
             event_callback('password_change_failed', {'error': str(e)})
         raise
 
+
+
+# ===============================================================================
+# === 4. NETWORK & COMMUNICATION (network.py section) ===
+# ===============================================================================
+
+# ==============================================
+# === NETWORK AND API UTILITIES ===
+# ==============================================
+
+# Mega API endpoints
+MEGA_API_URL = "https://g.api.mega.co.nz/cs"
+MEGA_UPLOAD_URL = "https://eu.api.mega.co.nz/ufa"
+
+# Request configuration
+DEFAULT_TIMEOUT = 30
+MAX_RETRIES = 3
+RETRY_DELAY = 1.0
+MAX_RETRY_DELAY = 16.0
+
+# Request headers
+DEFAULT_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+}
+
+
+class RateLimiter:
+    """
+    Simple rate limiter for API requests.
+    """
+    
+    def __init__(self, requests_per_second: float = 1.0):
+        self.requests_per_second = requests_per_second
+        self.last_request_time = 0.0
+    
+    def wait_if_needed(self) -> None:
+        """Wait if necessary to respect rate limit."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+        min_interval = 1.0 / self.requests_per_second
+        
+        if time_since_last < min_interval:
+            sleep_time = min_interval - time_since_last
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+
+
+class APISession:
+    """
+    Manages HTTP session for API requests with automatic retry and error handling.
+    Enhanced with connection pooling and performance optimizations.
+    """
+    
+    def __init__(self):
+        self.session = requests.Session()
+        
+        # Configure connection pooling for better performance
+        from requests.adapters import HTTPAdapter
+        
+        adapter = HTTPAdapter(
+            pool_connections=10,    # Number of connection pools
+            pool_maxsize=20,       # Maximum connections per pool
+            max_retries=0,         # We handle retries manually
+            pool_block=False       # Don't block on pool exhaustion
+        )
+        
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
+        
+        # Set headers
+        self.session.headers.update(DEFAULT_HEADERS)
+        
+        # Session state
+        self.sequence_number = random.randint(0, 0x7FFFFFFF)
+        self.sid = None  # Session ID after login
+        
+        # Request caching
+        self._request_cache = {}
+        self._cache_timeout = 30  # seconds
+        
+        # Performance tracking
+        self.request_count = 0
+        self.total_request_time = 0.0
+        
+    def get_sequence_number(self) -> int:
+        """Get next sequence number for API requests."""
+        self.sequence_number += 1
+        return self.sequence_number
+    
+    def set_session_id(self, sid: str) -> None:
+        """Set session ID after successful login."""
+        self.sid = sid
+    
+    def get_performance_stats(self) -> dict:
+        """Get performance statistics for this session."""
+        avg_time = self.total_request_time / max(1, self.request_count)
+        return {
+            'total_requests': self.request_count,
+            'total_time': self.total_request_time,
+            'average_request_time': avg_time,
+            'cache_entries': len(self._request_cache)
+        }
+    
+    def clear_cache(self) -> None:
+        """Clear the request cache."""
+        self._request_cache.clear()
+    
+    def close(self) -> None:
+        """Close the session."""
+        self.session.close()
+        self._request_cache.clear()
+
+
+# Global session instance
+_api_session = APISession()
+
+# Global rate limiter
+_rate_limiter = RateLimiter(requests_per_second=0.5)  # Conservative rate
+
+
+def _check_cache(cache_key: str) -> Optional[requests.Response]:
+    """Check if we have a cached response for this key."""
+    if cache_key in _api_session._request_cache:
+        cached_data, timestamp = _api_session._request_cache[cache_key]
+        if time.time() - timestamp < _api_session._cache_timeout:
+            return cached_data
+        else:
+            # Remove expired cache entry
+            del _api_session._request_cache[cache_key]
+    return None
+
+
+def _cache_response(cache_key: str, response: requests.Response) -> None:
+    """Cache a response for future use."""
+    _api_session._request_cache[cache_key] = (response, time.time())
+
+
+def make_request(url: str, data: Any = None, method: str = 'POST', 
+                timeout: float = DEFAULT_TIMEOUT, cache_key: str = None, **kwargs) -> requests.Response:
+    """
+    Make HTTP request with retry logic, error handling, and performance optimizations.
+    
+    Args:
+        url: The URL to request
+        data: Request data (will be JSON encoded if dict)
+        method: HTTP method
+        timeout: Request timeout
+        cache_key: Optional cache key for GET requests
+        **kwargs: Additional arguments for requests
+        
+    Returns:
+        Response object
+        
+    Raises:
+        RequestError: If request fails after retries
+    """
+    start_time = time.time()
+    
+    # Check cache for GET requests
+    if method == 'GET' and cache_key:
+        cached_response = _check_cache(cache_key)
+        if cached_response:
+            logger.debug(f"Cache hit for {cache_key}")
+            return cached_response
+    
+    retries = 0
+    delay = RETRY_DELAY
+    
+    while retries <= MAX_RETRIES:
+        try:
+            # Prepare request data
+            if isinstance(data, (dict, list)):
+                kwargs['json'] = data
+            elif data is not None:
+                kwargs['data'] = data
+            
+            # Make request
+            response = _api_session.session.request(
+                method=method,
+                url=url,
+                timeout=timeout,
+                **kwargs
+            )
+            
+            # Check for HTTP errors
+            response.raise_for_status()
+            
+            # Cache successful GET responses
+            if method == 'GET' and cache_key and response.status_code == 200:
+                _cache_response(cache_key, response)
+            
+            # Track performance
+            request_time = time.time() - start_time
+            _api_session.request_count += 1
+            _api_session.total_request_time += request_time
+            
+            if request_time > 1.0:  # Log slow requests
+                logger.warning(f"Slow request: {method} {url} took {request_time:.2f}s")
+            
+            return response
+            
+        except requests.exceptions.Timeout:
+            if retries >= MAX_RETRIES:
+                raise RequestError(f"Request timeout after {MAX_RETRIES} retries")
+            
+        except requests.exceptions.ConnectionError as e:
+            if retries >= MAX_RETRIES:
+                raise RequestError(f"Connection error: {e}")
+            
+        except requests.exceptions.HTTPError as e:
+            # Don't retry client errors (4xx)
+            if 400 <= e.response.status_code < 500:
+                raise RequestError(f"HTTP {e.response.status_code}: {e.response.text}")
+            
+            # Retry server errors (5xx)
+            if retries >= MAX_RETRIES:
+                raise RequestError(f"HTTP {e.response.status_code}: {e.response.text}")
+        
+        except Exception as e:
+            if retries >= MAX_RETRIES:
+                raise RequestError(f"Request failed: {e}")
+        
+        # Wait before retry
+        retries += 1
+        if retries <= MAX_RETRIES:
+            logger.warning(f"Request failed, retrying in {delay}s (attempt {retries}/{MAX_RETRIES})")
+            time.sleep(delay)
+            delay = min(delay * 2, MAX_RETRY_DELAY)  # Exponential backoff
+    
+    raise RequestError("Maximum retries exceeded")
+
+
+def api_request(commands: List[Dict[str, Any]], sid: Optional[str] = None) -> List[Any]:
+    """
+    Make Mega API request with command list.
+    
+    Args:
+        commands: List of API command dictionaries
+        sid: Session ID (if authenticated)
+        
+    Returns:
+        List of API responses
+        
+    Raises:
+        RequestError: If API request fails
+        ValidationError: If response is invalid
+    """
+    # Build request URL
+    url = MEGA_API_URL
+    params = {'id': _api_session.get_sequence_number()}
+    
+    if sid:
+        params['sid'] = sid
+    elif _api_session.sid:
+        params['sid'] = _api_session.sid
+    
+    # Make request
+    response = make_request(url, data=commands, params=params)
+    
+    # Parse response
+    try:
+        result = response.json()
+    except json.JSONDecodeError as e:
+        raise ValidationError(f"Invalid JSON response: {e}")
+    
+    # Check for API errors
+    if isinstance(result, list):
+        for i, item in enumerate(result):
+            if isinstance(item, int) and item < 0:
+                raise_mega_error(item)
+    elif isinstance(result, int) and result < 0:
+        raise_mega_error(result)
+    
+    return result
+
+
+def single_api_request(command: Dict[str, Any], sid: Optional[str] = None) -> Any:
+    """
+    Make single Mega API request.
+    
+    Args:
+        command: API command dictionary
+        sid: Session ID (if authenticated)
+        
+    Returns:
+        API response
+    """
+    result = api_request([command], sid)
+    return result[0] if result else None
+
+
+def rate_limited_request(*args, **kwargs):
+    """
+    Make rate-limited API request.
+    
+    Args/kwargs passed to api_request()
+    """
+    _rate_limiter.wait_if_needed()
+    return api_request(*args, **kwargs)
+
+
+def get_upload_url(size: int) -> str:
+    """
+    Get upload URL for file of given size.
+    
+    Args:
+        size: File size in bytes
+        
+    Returns:
+        Upload URL
+        
+    Raises:
+        RequestError: If unable to get upload URL
+    """
+    command = {'a': 'u', 's': size}
+    result = single_api_request(command)
+    
+    if not isinstance(result, dict) or 'p' not in result:
+        raise RequestError("Invalid upload URL response")
+    
+    return result['p']
+
+
+def get_download_url(node_id: str) -> str:
+    """
+    Get download URL for node.
+    
+    Args:
+        node_id: The node ID to download
+        
+    Returns:
+        Download URL
+        
+    Raises:
+        RequestError: If unable to get download URL
+    """
+    command = {'a': 'g', 'g': 1, 'n': node_id}
+    result = single_api_request(command)
+    
+    if not isinstance(result, dict) or 'g' not in result:
+        raise RequestError("Invalid download URL response")
+    
+    return result['g']
+
+
+def upload_chunk(url: str, chunk_data: bytes, chunk_start: int) -> Dict[str, Any]:
+    """
+    Upload file chunk to Mega.
+    
+    Args:
+        url: Upload URL
+        chunk_data: Chunk data to upload
+        chunk_start: Starting position of chunk
+        
+    Returns:
+        Upload response with completion handle if this is the last chunk
+        
+    Raises:
+        RequestError: If upload fails
+    """
+    headers = {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': str(len(chunk_data)),
+    }
+    
+    # Add chunk position to URL
+    chunk_url = f"{url}/{chunk_start}"
+    
+    response = make_request(chunk_url, data=chunk_data, method='POST', headers=headers)
+    
+    # The response text contains the completion handle if this is the final chunk
+    if response.text and response.text.strip():
+        return {'handle': response.text.strip()}
+    else:
+        return {'status': 'ok'}
+
+
+def download_chunk(url: str, start: int, end: int) -> bytes:
+    """
+    Download file chunk from Mega.
+    
+    Args:
+        url: Download URL
+        start: Start byte position
+        end: End byte position
+        
+    Returns:
+        Chunk data
+        
+    Raises:
+        RequestError: If download fails
+    """
+    headers = {'Range': f'bytes={start}-{end}'}
+    
+    response = make_request(url, method='GET', headers=headers)
+    return response.content
+
+
+def get_network_performance_stats() -> dict:
+    """Get network performance statistics."""
+    return _api_session.get_performance_stats()
+
+
+def clear_network_cache() -> None:
+    """Clear the network request cache."""
+    _api_session.clear_cache()
+
+
+
+# ===============================================================================
+# === 5. STORAGE & FILE OPERATIONS (storage.py section) ===
+# ===============================================================================
 
 # ==============================================
 # === FILESYSTEM OPERATIONS ===
@@ -3047,6 +3071,332 @@ def rename_node_with_events(handle: str, new_name: str,
         raise
 
 
+
+# ===============================================================================
+# === 6. SYNCHRONIZATION & TRANSFER (sync.py section) ===
+# ===============================================================================
+
+# ==============================================
+# === TRANSFER MANAGEMENT FUNCTIONALITY ===
+# ==============================================
+
+class TransferState(Enum):
+    """Transfer states"""
+    PENDING = "pending"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class TransferType(Enum):
+    """Transfer types"""
+    UPLOAD = "upload"
+    DOWNLOAD = "download"
+
+
+@dataclass
+class TransferInfo:
+    """Transfer information"""
+    transfer_id: str
+    transfer_type: TransferType
+    state: TransferState
+    file_name: str
+    file_size: int
+    bytes_transferred: int = 0
+    speed: float = 0.0  # MB/s
+    eta: Optional[int] = None  # seconds
+    priority: str = "normal"  # Will use TransferPriority enum when available
+    created_at: datetime = None
+    
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+
+def get_transfer_queue() -> List[TransferInfo]:
+    """
+    Get current transfer queue.
+    
+    Returns:
+        List of transfer information
+    """
+    # Placeholder implementation
+    return []
+
+
+def pause_transfer(transfer_id: str) -> bool:
+    """
+    Pause a transfer.
+    
+    Args:
+        transfer_id: Transfer identifier
+        
+    Returns:
+        True if paused successfully
+    """
+    try:
+        logger.info(f"Pausing transfer: {transfer_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to pause transfer: {e}")
+        return False
+
+
+def resume_transfer(transfer_id: str) -> bool:
+    """
+    Resume a paused transfer.
+    
+    Args:
+        transfer_id: Transfer identifier
+        
+    Returns:
+        True if resumed successfully
+    """
+    try:
+        logger.info(f"Resuming transfer: {transfer_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to resume transfer: {e}")
+        return False
+
+
+# ==============================================
+# === SYNC FUNCTIONALITY ===
+# ==============================================
+
+from dataclasses import dataclass
+from typing import List
+from enum import Enum
+
+@dataclass
+class SyncConfig:
+    """Configuration for synchronization operations"""
+    local_path: str
+    remote_path: str
+    sync_direction: str = "bidirectional"  # "up", "down", "bidirectional"
+    conflict_resolution: str = "newer_wins"  # "newer_wins", "local_wins", "remote_wins", "ask"
+    ignore_patterns: List[str] = None
+    real_time: bool = True
+    sync_interval: int = 300  # seconds
+    max_file_size: int = 100 * 1024 * 1024  # 100MB
+    backup_conflicts: bool = True
+    
+    def __post_init__(self):
+        if self.ignore_patterns is None:
+            self.ignore_patterns = [
+                "*.tmp", "*.temp", "*.lock", ".DS_Store", "Thumbs.db",
+                "*.swp", "*.swo", "~*", ".git/*", "__pycache__/*"
+            ]
+
+
+def create_sync_config(local_path: str, remote_path: str = "/", **kwargs) -> SyncConfig:
+    """
+    Create synchronization configuration.
+    
+    Args:
+        local_path: Local directory path to sync
+        remote_path: Remote directory path (default: root)
+        **kwargs: Additional sync settings
+        
+    Returns:
+        SyncConfig object
+    """
+    return SyncConfig(local_path=local_path, remote_path=remote_path, **kwargs)
+
+
+def start_sync(config: SyncConfig, callback: Callable = None) -> bool:
+    """
+    Start synchronization with given configuration.
+    
+    Args:
+        config: Sync configuration
+        callback: Optional callback for sync events
+        
+    Returns:
+        True if sync started successfully
+    """
+    try:
+        if callback:
+            callback('sync_started', {'config': config})
+        
+        logger.info(f"Starting sync: {config.local_path} ↔ {config.remote_path}")
+        
+        # Basic sync implementation - could be enhanced with more sophisticated logic
+        import os
+        if os.path.exists(config.local_path):
+            # Placeholder for sync logic
+            if callback:
+                callback('sync_completed', {'status': 'success'})
+            return True
+        else:
+            raise Exception(f"Local path does not exist: {config.local_path}")
+            
+    except Exception as e:
+        if callback:
+            callback('sync_failed', {'error': str(e)})
+        logger.error(f"Sync failed: {e}")
+        return False
+
+
+
+# ===============================================================================
+# === 7. SHARING & COLLABORATION (sharing.py section) ===
+# ===============================================================================
+
+# ==============================================
+# === PUBLIC SHARING FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class ShareSettings:
+    """Public sharing configuration"""
+    password: Optional[str] = None
+    expiry_date: Optional[datetime] = None
+    download_limit: Optional[int] = None
+    allow_preview: bool = True
+
+
+def create_public_link(handle: str, settings: Optional[ShareSettings] = None) -> Optional[str]:
+    """
+    Create public link for file/folder.
+    
+    Args:
+        handle: File or folder handle
+        settings: Optional sharing settings
+        
+    Returns:
+        Public link URL or None if failed
+    """
+    try:
+        # This would normally call the MEGA API to create a public link
+        # For now, return a placeholder
+        logger.info(f"Creating public link for handle: {handle}")
+        if settings:
+            logger.info(f"Share settings: {settings}")
+        
+        # Placeholder link
+        return f"https://mega.nz/file/{handle}#mock_key"
+        
+    except Exception as e:
+        logger.error(f"Failed to create public link: {e}")
+        return None
+
+
+def remove_public_link(handle: str) -> bool:
+    """
+    Remove public link for file/folder.
+    
+    Args:
+        handle: File or folder handle
+        
+    Returns:
+        True if link removed successfully
+    """
+    try:
+        logger.info(f"Removing public link for handle: {handle}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to remove public link: {e}")
+        return False
+
+
+
+# ===============================================================================
+# === 8. CONTENT PROCESSING (content.py section) ===
+# ===============================================================================
+
+# ==============================================
+# === MEDIA THUMBNAILS FUNCTIONALITY ===
+# ==============================================
+
+class MediaType(Enum):
+    """Media file types"""
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+    UNKNOWN = "unknown"
+
+
+@dataclass
+class MediaInfo:
+    """Media file information"""
+    file_path: str
+    media_type: MediaType
+    size: int
+    duration: Optional[float] = None
+    dimensions: Optional[Tuple[int, int]] = None
+    format: Optional[str] = None
+
+
+def get_media_type(file_path: str) -> MediaType:
+    """
+    Determine media type from file extension.
+    
+    Args:
+        file_path: Path to media file
+        
+    Returns:
+        MediaType enum value
+    """
+    ext = Path(file_path).suffix.lower()
+    
+    image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
+    video_exts = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm'}
+    audio_exts = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
+    document_exts = {'.pdf', '.doc', '.docx', '.txt', '.rtf'}
+    
+    if ext in image_exts:
+        return MediaType.IMAGE
+    elif ext in video_exts:
+        return MediaType.VIDEO
+    elif ext in audio_exts:
+        return MediaType.AUDIO
+    elif ext in document_exts:
+        return MediaType.DOCUMENT
+    else:
+        return MediaType.UNKNOWN
+
+
+def create_thumbnail(file_path: str, output_path: str, size: Tuple[int, int] = (128, 128)) -> bool:
+    """
+    Create thumbnail for media file.
+    
+    Args:
+        file_path: Path to source file
+        output_path: Path for thumbnail output
+        size: Thumbnail dimensions
+        
+    Returns:
+        True if thumbnail created successfully
+    """
+    try:
+        media_type = get_media_type(file_path)
+        
+        if media_type == MediaType.IMAGE:
+            # Placeholder for image thumbnail creation
+            logger.info(f"Creating image thumbnail: {file_path} -> {output_path}")
+            return True
+        elif media_type == MediaType.VIDEO:
+            # Placeholder for video thumbnail creation
+            logger.info(f"Creating video thumbnail: {file_path} -> {output_path}")
+            return True
+        else:
+            logger.warning(f"Thumbnail not supported for {media_type.value}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to create thumbnail: {e}")
+        return False
+
+
+
+# ===============================================================================
+# === 9. MONITORING & SYSTEM MANAGEMENT (monitor.py section) ===
+# ===============================================================================
+
 # ==============================================
 # === EVENT SYSTEM ===
 # ==============================================
@@ -3099,6 +3449,303 @@ class EventManager:
 # Global event manager
 _event_manager = EventManager()
 
+
+# ==============================================
+# === HTTP/2 OPTIMIZATION FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class HTTP2Settings:
+    """HTTP/2 optimization settings"""
+    enabled: bool = True
+    max_concurrent_streams: int = 100
+    window_size: int = 65536
+    enable_server_push: bool = True
+    connection_timeout: int = 30
+
+
+def configure_http2(settings: Optional[HTTP2Settings] = None) -> bool:
+    """
+    Configure HTTP/2 optimization settings.
+    
+    Args:
+        settings: HTTP/2 configuration settings
+        
+    Returns:
+        True if configured successfully
+    """
+    try:
+        if settings is None:
+            settings = HTTP2Settings()
+        
+        logger.info(f"Configuring HTTP/2: enabled={settings.enabled}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to configure HTTP/2: {e}")
+        return False
+
+
+def get_http2_stats() -> Dict[str, Any]:
+    """
+    Get HTTP/2 performance statistics.
+    
+    Returns:
+        Dictionary with HTTP/2 stats
+    """
+    return {
+        'enabled': True,
+        'active_streams': 0,
+        'total_requests': 0,
+        'avg_response_time': 0.0,
+        'connection_reused': 0
+    }
+
+
+# ==============================================
+# === ADVANCED ERROR RECOVERY FUNCTIONALITY ===
+# ==============================================
+
+class ErrorSeverity(Enum):
+    """Error severity levels"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+@dataclass
+class ErrorInfo:
+    """Error information for recovery"""
+    error_type: str
+    error_message: str
+    severity: ErrorSeverity
+    recoverable: bool
+    retry_count: int = 0
+    max_retries: int = 3
+    timestamp: datetime = None
+    
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = datetime.now()
+
+
+def classify_error(error: Exception) -> ErrorInfo:
+    """
+    Classify error for recovery strategy.
+    
+    Args:
+        error: Exception to classify
+        
+    Returns:
+        ErrorInfo with classification details
+    """
+    error_type = type(error).__name__
+    error_message = str(error)
+    
+    # Classify based on error type and message
+    if "connection" in error_message.lower() or "network" in error_message.lower():
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.MEDIUM,
+            recoverable=True,
+            max_retries=5
+        )
+    elif "timeout" in error_message.lower():
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.MEDIUM,
+            recoverable=True,
+            max_retries=3
+        )
+    elif "authentication" in error_message.lower() or "unauthorized" in error_message.lower():
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.HIGH,
+            recoverable=False
+        )
+    else:
+        return ErrorInfo(
+            error_type=error_type,
+            error_message=error_message,
+            severity=ErrorSeverity.LOW,
+            recoverable=True
+        )
+
+
+def auto_recover_from_error(error_info: ErrorInfo, operation: Callable, *args, **kwargs) -> Any:
+    """
+    Attempt automatic recovery from error.
+    
+    Args:
+        error_info: Error classification information
+        operation: Function to retry
+        *args: Operation arguments
+        **kwargs: Operation keyword arguments
+        
+    Returns:
+        Operation result if recovery successful
+    """
+    if not error_info.recoverable or error_info.retry_count >= error_info.max_retries:
+        raise Exception(f"Cannot recover from error: {error_info.error_message}")
+    
+    import time
+    
+    # Exponential backoff
+    wait_time = min(2 ** error_info.retry_count, 30)
+    time.sleep(wait_time)
+    
+    error_info.retry_count += 1
+    logger.info(f"Attempting recovery (attempt {error_info.retry_count}/{error_info.max_retries})")
+    
+    try:
+        return operation(*args, **kwargs)
+    except Exception as e:
+        new_error_info = classify_error(e)
+        new_error_info.retry_count = error_info.retry_count
+        return auto_recover_from_error(new_error_info, operation, *args, **kwargs)
+
+
+# ==============================================
+# === MEMORY OPTIMIZATION FUNCTIONALITY ===
+# ==============================================
+
+@dataclass
+class MemorySettings:
+    """Memory optimization settings"""
+    max_cache_size: int = 100 * 1024 * 1024  # 100MB
+    enable_compression: bool = True
+    gc_threshold: float = 0.8  # Trigger GC at 80% memory usage
+    chunk_size: int = 8 * 1024 * 1024  # 8MB chunks
+
+
+def optimize_memory(settings: Optional[MemorySettings] = None) -> bool:
+    """
+    Apply memory optimizations.
+    
+    Args:
+        settings: Memory optimization settings
+        
+    Returns:
+        True if optimization applied successfully
+    """
+    try:
+        if settings is None:
+            settings = MemorySettings()
+        
+        import gc
+        
+        # Force garbage collection
+        gc.collect()
+        
+        logger.info(f"Memory optimized: cache_size={settings.max_cache_size}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to optimize memory: {e}")
+        return False
+
+
+def get_memory_stats() -> Dict[str, Any]:
+    """
+    Get memory usage statistics.
+    
+    Returns:
+        Dictionary with memory stats
+    """
+    import psutil
+    import os
+    
+    try:
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        
+        return {
+            'rss_memory': memory_info.rss,
+            'vms_memory': memory_info.vms,
+            'memory_percent': process.memory_percent(),
+            'available_memory': psutil.virtual_memory().available
+        }
+    except ImportError:
+        # Fallback if psutil not available
+        return {
+            'rss_memory': 0,
+            'vms_memory': 0,
+            'memory_percent': 0.0,
+            'available_memory': 0
+        }
+
+
+# ==============================================
+# === EVENT SYSTEM FUNCTIONALITY ===
+# ==============================================
+
+from collections import defaultdict
+from datetime import datetime
+
+class EventManager:
+    """Enhanced event system for tracking operations and providing callbacks"""
+    
+    def __init__(self):
+        self.callbacks = defaultdict(list)
+        self.history = []
+        self.stats = {
+            'events_triggered': 0,
+            'callbacks_executed': 0,
+            'errors_encountered': 0
+        }
+    
+    def on(self, event: str, callback: Callable) -> None:
+        """Register an event callback."""
+        if callback not in self.callbacks[event]:
+            self.callbacks[event].append(callback)
+    
+    def off(self, event: str, callback: Callable = None) -> None:
+        """Remove event callback(s)."""
+        if callback is None:
+            self.callbacks[event].clear()
+        elif callback in self.callbacks[event]:
+            self.callbacks[event].remove(callback)
+    
+    def trigger(self, event: str, data: Dict[str, Any], source: str = 'unknown') -> None:
+        """Trigger event callbacks."""
+        self.stats['events_triggered'] += 1
+        
+        # Add to history
+        self.history.append({
+            'event': event,
+            'data': data,
+            'source': source,
+            'timestamp': datetime.now()
+        })
+        
+        # Keep history limited
+        if len(self.history) > 1000:
+            self.history = self.history[-500:]
+        
+        # Execute callbacks
+        for callback in self.callbacks[event]:
+            try:
+                callback(event, data)
+                self.stats['callbacks_executed'] += 1
+            except Exception as e:
+                self.stats['errors_encountered'] += 1
+                logger.warning(f"Event callback error for {event}: {e}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get event system statistics."""
+        return self.stats.copy()
+    
+    def clear_history(self) -> None:
+        """Clear event history."""
+        self.history.clear()
+
+
+
+# ===============================================================================
+# === 10. MAIN CLIENT CLASS & CONVENIENCE FUNCTIONS ===
+# ===============================================================================
 
 # ==============================================
 # === UTILITY FUNCTIONS ===
@@ -3852,233 +4499,6 @@ __all__ = [
 ]
 
 # ==============================================
-# === HTTP/2 OPTIMIZATION FUNCTIONALITY ===
-# ==============================================
-
-@dataclass
-class HTTP2Settings:
-    """HTTP/2 optimization settings"""
-    enabled: bool = True
-    max_concurrent_streams: int = 100
-    window_size: int = 65536
-    enable_server_push: bool = True
-    connection_timeout: int = 30
-
-
-def configure_http2(settings: Optional[HTTP2Settings] = None) -> bool:
-    """
-    Configure HTTP/2 optimization settings.
-    
-    Args:
-        settings: HTTP/2 configuration settings
-        
-    Returns:
-        True if configured successfully
-    """
-    try:
-        if settings is None:
-            settings = HTTP2Settings()
-        
-        logger.info(f"Configuring HTTP/2: enabled={settings.enabled}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to configure HTTP/2: {e}")
-        return False
-
-
-def get_http2_stats() -> Dict[str, Any]:
-    """
-    Get HTTP/2 performance statistics.
-    
-    Returns:
-        Dictionary with HTTP/2 stats
-    """
-    return {
-        'enabled': True,
-        'active_streams': 0,
-        'total_requests': 0,
-        'avg_response_time': 0.0,
-        'connection_reused': 0
-    }
-
-
-# ==============================================
-# === ADVANCED ERROR RECOVERY FUNCTIONALITY ===
-# ==============================================
-
-class ErrorSeverity(Enum):
-    """Error severity levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
-
-
-@dataclass
-class ErrorInfo:
-    """Error information for recovery"""
-    error_type: str
-    error_message: str
-    severity: ErrorSeverity
-    recoverable: bool
-    retry_count: int = 0
-    max_retries: int = 3
-    timestamp: datetime = None
-    
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = datetime.now()
-
-
-def classify_error(error: Exception) -> ErrorInfo:
-    """
-    Classify error for recovery strategy.
-    
-    Args:
-        error: Exception to classify
-        
-    Returns:
-        ErrorInfo with classification details
-    """
-    error_type = type(error).__name__
-    error_message = str(error)
-    
-    # Classify based on error type and message
-    if "connection" in error_message.lower() or "network" in error_message.lower():
-        return ErrorInfo(
-            error_type=error_type,
-            error_message=error_message,
-            severity=ErrorSeverity.MEDIUM,
-            recoverable=True,
-            max_retries=5
-        )
-    elif "timeout" in error_message.lower():
-        return ErrorInfo(
-            error_type=error_type,
-            error_message=error_message,
-            severity=ErrorSeverity.MEDIUM,
-            recoverable=True,
-            max_retries=3
-        )
-    elif "authentication" in error_message.lower() or "unauthorized" in error_message.lower():
-        return ErrorInfo(
-            error_type=error_type,
-            error_message=error_message,
-            severity=ErrorSeverity.HIGH,
-            recoverable=False
-        )
-    else:
-        return ErrorInfo(
-            error_type=error_type,
-            error_message=error_message,
-            severity=ErrorSeverity.LOW,
-            recoverable=True
-        )
-
-
-def auto_recover_from_error(error_info: ErrorInfo, operation: Callable, *args, **kwargs) -> Any:
-    """
-    Attempt automatic recovery from error.
-    
-    Args:
-        error_info: Error classification information
-        operation: Function to retry
-        *args: Operation arguments
-        **kwargs: Operation keyword arguments
-        
-    Returns:
-        Operation result if recovery successful
-    """
-    if not error_info.recoverable or error_info.retry_count >= error_info.max_retries:
-        raise Exception(f"Cannot recover from error: {error_info.error_message}")
-    
-    import time
-    
-    # Exponential backoff
-    wait_time = min(2 ** error_info.retry_count, 30)
-    time.sleep(wait_time)
-    
-    error_info.retry_count += 1
-    logger.info(f"Attempting recovery (attempt {error_info.retry_count}/{error_info.max_retries})")
-    
-    try:
-        return operation(*args, **kwargs)
-    except Exception as e:
-        new_error_info = classify_error(e)
-        new_error_info.retry_count = error_info.retry_count
-        return auto_recover_from_error(new_error_info, operation, *args, **kwargs)
-
-
-# ==============================================
-# === MEMORY OPTIMIZATION FUNCTIONALITY ===
-# ==============================================
-
-@dataclass
-class MemorySettings:
-    """Memory optimization settings"""
-    max_cache_size: int = 100 * 1024 * 1024  # 100MB
-    enable_compression: bool = True
-    gc_threshold: float = 0.8  # Trigger GC at 80% memory usage
-    chunk_size: int = 8 * 1024 * 1024  # 8MB chunks
-
-
-def optimize_memory(settings: Optional[MemorySettings] = None) -> bool:
-    """
-    Apply memory optimizations.
-    
-    Args:
-        settings: Memory optimization settings
-        
-    Returns:
-        True if optimization applied successfully
-    """
-    try:
-        if settings is None:
-            settings = MemorySettings()
-        
-        import gc
-        
-        # Force garbage collection
-        gc.collect()
-        
-        logger.info(f"Memory optimized: cache_size={settings.max_cache_size}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to optimize memory: {e}")
-        return False
-
-
-def get_memory_stats() -> Dict[str, Any]:
-    """
-    Get memory usage statistics.
-    
-    Returns:
-        Dictionary with memory stats
-    """
-    import psutil
-    import os
-    
-    try:
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        
-        return {
-            'rss_memory': memory_info.rss,
-            'vms_memory': memory_info.vms,
-            'memory_percent': process.memory_percent(),
-            'available_memory': psutil.virtual_memory().available
-        }
-    except ImportError:
-        # Fallback if psutil not available
-        return {
-            'rss_memory': 0,
-            'vms_memory': 0,
-            'memory_percent': 0.0,
-            'available_memory': 0
-        }
-
-
-# ==============================================
 # === ADDITIONAL DYNAMIC METHODS ===
 # ==============================================
 
@@ -4138,299 +4558,6 @@ def add_memory_optimization_methods(client_class):
     client_class.optimize_memory = optimize_memory_method
     client_class.get_memory_stats = get_memory_stats_method
     client_class.create_memory_settings = create_memory_settings_method
-
-
-# ==============================================
-# === EVENT SYSTEM FUNCTIONALITY ===
-# ==============================================
-
-from collections import defaultdict
-from datetime import datetime
-
-class EventManager:
-    """Enhanced event system for tracking operations and providing callbacks"""
-    
-    def __init__(self):
-        self.callbacks = defaultdict(list)
-        self.history = []
-        self.stats = {
-            'events_triggered': 0,
-            'callbacks_executed': 0,
-            'errors_encountered': 0
-        }
-    
-    def on(self, event: str, callback: Callable) -> None:
-        """Register an event callback."""
-        if callback not in self.callbacks[event]:
-            self.callbacks[event].append(callback)
-    
-    def off(self, event: str, callback: Callable = None) -> None:
-        """Remove event callback(s)."""
-        if callback is None:
-            self.callbacks[event].clear()
-        elif callback in self.callbacks[event]:
-            self.callbacks[event].remove(callback)
-    
-    def trigger(self, event: str, data: Dict[str, Any], source: str = 'unknown') -> None:
-        """Trigger event callbacks."""
-        self.stats['events_triggered'] += 1
-        
-        # Add to history
-        self.history.append({
-            'event': event,
-            'data': data,
-            'source': source,
-            'timestamp': datetime.now()
-        })
-        
-        # Keep history limited
-        if len(self.history) > 1000:
-            self.history = self.history[-500:]
-        
-        # Execute callbacks
-        for callback in self.callbacks[event]:
-            try:
-                callback(event, data)
-                self.stats['callbacks_executed'] += 1
-            except Exception as e:
-                self.stats['errors_encountered'] += 1
-                logger.warning(f"Event callback error for {event}: {e}")
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get event system statistics."""
-        return self.stats.copy()
-    
-    def clear_history(self) -> None:
-        """Clear event history."""
-        self.history.clear()
-
-
-# ==============================================
-# === MEDIA THUMBNAILS FUNCTIONALITY ===
-# ==============================================
-
-class MediaType(Enum):
-    """Media file types"""
-    IMAGE = "image"
-    VIDEO = "video"
-    AUDIO = "audio"
-    DOCUMENT = "document"
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class MediaInfo:
-    """Media file information"""
-    file_path: str
-    media_type: MediaType
-    size: int
-    duration: Optional[float] = None
-    dimensions: Optional[Tuple[int, int]] = None
-    format: Optional[str] = None
-
-
-def get_media_type(file_path: str) -> MediaType:
-    """
-    Determine media type from file extension.
-    
-    Args:
-        file_path: Path to media file
-        
-    Returns:
-        MediaType enum value
-    """
-    ext = Path(file_path).suffix.lower()
-    
-    image_exts = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'}
-    video_exts = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm'}
-    audio_exts = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a'}
-    document_exts = {'.pdf', '.doc', '.docx', '.txt', '.rtf'}
-    
-    if ext in image_exts:
-        return MediaType.IMAGE
-    elif ext in video_exts:
-        return MediaType.VIDEO
-    elif ext in audio_exts:
-        return MediaType.AUDIO
-    elif ext in document_exts:
-        return MediaType.DOCUMENT
-    else:
-        return MediaType.UNKNOWN
-
-
-def create_thumbnail(file_path: str, output_path: str, size: Tuple[int, int] = (128, 128)) -> bool:
-    """
-    Create thumbnail for media file.
-    
-    Args:
-        file_path: Path to source file
-        output_path: Path for thumbnail output
-        size: Thumbnail dimensions
-        
-    Returns:
-        True if thumbnail created successfully
-    """
-    try:
-        media_type = get_media_type(file_path)
-        
-        if media_type == MediaType.IMAGE:
-            # Placeholder for image thumbnail creation
-            logger.info(f"Creating image thumbnail: {file_path} -> {output_path}")
-            return True
-        elif media_type == MediaType.VIDEO:
-            # Placeholder for video thumbnail creation
-            logger.info(f"Creating video thumbnail: {file_path} -> {output_path}")
-            return True
-        else:
-            logger.warning(f"Thumbnail not supported for {media_type.value}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Failed to create thumbnail: {e}")
-        return False
-
-
-# ==============================================
-# === PUBLIC SHARING FUNCTIONALITY ===
-# ==============================================
-
-@dataclass
-class ShareSettings:
-    """Public sharing configuration"""
-    password: Optional[str] = None
-    expiry_date: Optional[datetime] = None
-    download_limit: Optional[int] = None
-    allow_preview: bool = True
-
-
-def create_public_link(handle: str, settings: Optional[ShareSettings] = None) -> Optional[str]:
-    """
-    Create public link for file/folder.
-    
-    Args:
-        handle: File or folder handle
-        settings: Optional sharing settings
-        
-    Returns:
-        Public link URL or None if failed
-    """
-    try:
-        # This would normally call the MEGA API to create a public link
-        # For now, return a placeholder
-        logger.info(f"Creating public link for handle: {handle}")
-        if settings:
-            logger.info(f"Share settings: {settings}")
-        
-        # Placeholder link
-        return f"https://mega.nz/file/{handle}#mock_key"
-        
-    except Exception as e:
-        logger.error(f"Failed to create public link: {e}")
-        return None
-
-
-def remove_public_link(handle: str) -> bool:
-    """
-    Remove public link for file/folder.
-    
-    Args:
-        handle: File or folder handle
-        
-    Returns:
-        True if link removed successfully
-    """
-    try:
-        logger.info(f"Removing public link for handle: {handle}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to remove public link: {e}")
-        return False
-
-
-# ==============================================
-# === TRANSFER MANAGEMENT FUNCTIONALITY ===
-# ==============================================
-
-class TransferState(Enum):
-    """Transfer states"""
-    PENDING = "pending"
-    ACTIVE = "active"
-    PAUSED = "paused"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class TransferType(Enum):
-    """Transfer types"""
-    UPLOAD = "upload"
-    DOWNLOAD = "download"
-
-
-@dataclass
-class TransferInfo:
-    """Transfer information"""
-    transfer_id: str
-    transfer_type: TransferType
-    state: TransferState
-    file_name: str
-    file_size: int
-    bytes_transferred: int = 0
-    speed: float = 0.0  # MB/s
-    eta: Optional[int] = None  # seconds
-    priority: str = "normal"  # Will use TransferPriority enum when available
-    created_at: datetime = None
-    
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = datetime.now()
-
-
-def get_transfer_queue() -> List[TransferInfo]:
-    """
-    Get current transfer queue.
-    
-    Returns:
-        List of transfer information
-    """
-    # Placeholder implementation
-    return []
-
-
-def pause_transfer(transfer_id: str) -> bool:
-    """
-    Pause a transfer.
-    
-    Args:
-        transfer_id: Transfer identifier
-        
-    Returns:
-        True if paused successfully
-    """
-    try:
-        logger.info(f"Pausing transfer: {transfer_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to pause transfer: {e}")
-        return False
-
-
-def resume_transfer(transfer_id: str) -> bool:
-    """
-    Resume a paused transfer.
-    
-    Args:
-        transfer_id: Transfer identifier
-        
-    Returns:
-        True if resumed successfully
-    """
-    try:
-        logger.info(f"Resuming transfer: {transfer_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to resume transfer: {e}")
-        return False
 
 
 # ==============================================
@@ -4536,84 +4663,6 @@ def add_transfer_methods(client_class):
     client_class.get_transfer_queue = get_transfer_queue_method
     client_class.pause_transfer = pause_transfer_method
     client_class.resume_transfer = resume_transfer_method
-
-
-# ==============================================
-# === SYNC FUNCTIONALITY ===
-# ==============================================
-
-from dataclasses import dataclass
-from typing import List
-from enum import Enum
-
-@dataclass
-class SyncConfig:
-    """Configuration for synchronization operations"""
-    local_path: str
-    remote_path: str
-    sync_direction: str = "bidirectional"  # "up", "down", "bidirectional"
-    conflict_resolution: str = "newer_wins"  # "newer_wins", "local_wins", "remote_wins", "ask"
-    ignore_patterns: List[str] = None
-    real_time: bool = True
-    sync_interval: int = 300  # seconds
-    max_file_size: int = 100 * 1024 * 1024  # 100MB
-    backup_conflicts: bool = True
-    
-    def __post_init__(self):
-        if self.ignore_patterns is None:
-            self.ignore_patterns = [
-                "*.tmp", "*.temp", "*.lock", ".DS_Store", "Thumbs.db",
-                "*.swp", "*.swo", "~*", ".git/*", "__pycache__/*"
-            ]
-
-
-def create_sync_config(local_path: str, remote_path: str = "/", **kwargs) -> SyncConfig:
-    """
-    Create synchronization configuration.
-    
-    Args:
-        local_path: Local directory path to sync
-        remote_path: Remote directory path (default: root)
-        **kwargs: Additional sync settings
-        
-    Returns:
-        SyncConfig object
-    """
-    return SyncConfig(local_path=local_path, remote_path=remote_path, **kwargs)
-
-
-def start_sync(config: SyncConfig, callback: Callable = None) -> bool:
-    """
-    Start synchronization with given configuration.
-    
-    Args:
-        config: Sync configuration
-        callback: Optional callback for sync events
-        
-    Returns:
-        True if sync started successfully
-    """
-    try:
-        if callback:
-            callback('sync_started', {'config': config})
-        
-        logger.info(f"Starting sync: {config.local_path} ↔ {config.remote_path}")
-        
-        # Basic sync implementation - could be enhanced with more sophisticated logic
-        import os
-        if os.path.exists(config.local_path):
-            # Placeholder for sync logic
-            if callback:
-                callback('sync_completed', {'status': 'success'})
-            return True
-        else:
-            raise Exception(f"Local path does not exist: {config.local_path}")
-            
-    except Exception as e:
-        if callback:
-            callback('sync_failed', {'error': str(e)})
-        logger.error(f"Sync failed: {e}")
-        return False
 
 
 # ==============================================
@@ -5470,4 +5519,3 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 logger.info(f"MegaPythonLibrary v{__version__} (merged) fully loaded - {len(__all__)} exports available")
-logger.info("Ready for use! Try: client = MPLClient(); client.login('email', 'password')")
