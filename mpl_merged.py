@@ -3916,10 +3916,6 @@ class MPLClient:
         self.auto_login = auto_login
         self._event_callbacks = {}
         
-        # Session state for pwd/cd functionality
-        self._current_directory = "/"
-        self._directory_history = ["/"]
-        
         # Set up logging
         self.logger = logging.getLogger(__name__)
         self.logger.info("MPLClient initialized")
@@ -4375,7 +4371,7 @@ class MPLClient:
     
     def cp(self, source_path: str, destination_path: str) -> bool:
         """
-        Copy files (MEGAcmd standard).
+        Copy files (MEGAcmd standard - placeholder).
         
         Args:
             source_path: Source path
@@ -4384,63 +4380,9 @@ class MPLClient:
         Returns:
             True if copy successful
         """
-        import tempfile
-        import os
-        
-        try:
-            # Get source node
-            source_node = get_node_by_path(source_path)
-            if not source_node:
-                raise RequestError(f"Source file not found: {source_path}")
-            
-            if source_node.is_folder():
-                raise RequestError("Directory copying not yet supported")
-            
-            # Create temporary file for download
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                temp_path = temp_file.name
-            
-            try:
-                # Download source file to temporary location
-                if not self.download(source_path, temp_path):
-                    raise RequestError("Failed to download source file")
-                
-                # Determine destination
-                dest_node = get_node_by_path(destination_path)
-                if dest_node and dest_node.is_folder():
-                    # Destination is a folder, use original filename
-                    dest_folder = destination_path
-                    filename = source_node.name
-                else:
-                    # Destination includes filename or does not exist
-                    dest_folder = "/".join(destination_path.split("/")[:-1]) or "/"
-                    filename = destination_path.split("/")[-1]
-                
-                # Verify destination folder exists
-                dest_folder_node = get_node_by_path(dest_folder)
-                if not dest_folder_node:
-                    raise RequestError(f"Destination folder not found: {dest_folder}")
-                
-                # Upload to destination
-                uploaded_node = self.upload(temp_path, dest_folder)
-                
-                # Rename if needed
-                if uploaded_node.name != filename:
-                    # Note: Implement rename if needed
-                    pass
-                
-                return True
-                
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-                    
-        except Exception as e:
-            self.logger.error(f"Copy operation failed: {e}")
-            return False
+        # Note: MEGA doesn't have direct copy - this would need to be implemented
+        # as download + upload or using API server-side copy if available
+        raise NotImplementedError("Copy operation not yet implemented")
     
     def get(self, remote_path: str, local_path: str) -> bool:
         """
@@ -4483,7 +4425,7 @@ class MPLClient:
     
     def cat(self, path: str) -> str:
         """
-        Display file contents (MEGAcmd standard).
+        Display file contents (MEGAcmd standard - placeholder).
         
         Args:
             path: File path
@@ -4491,66 +4433,18 @@ class MPLClient:
         Returns:
             File contents as string
         """
-        import tempfile
-        import os
-        
-        try:
-            # Get file node
-            node = get_node_by_path(path)
-            if not node:
-                raise RequestError(f"File not found: {path}")
-            
-            if node.is_folder():
-                raise RequestError("Cannot display contents of a directory")
-            
-            # Create temporary file for download
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                temp_path = temp_file.name
-            
-            try:
-                # Download file to temporary location
-                if not self.download(path, temp_path):
-                    raise RequestError("Failed to download file")
-                
-                # Read file contents with encoding detection
-                try:
-                    # Try UTF-8 first
-                    with open(temp_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                except UnicodeDecodeError:
-                    try:
-                        # Try latin-1 as fallback
-                        with open(temp_path, "r", encoding="latin-1") as f:
-                            content = f.read()
-                    except Exception:
-                        # Binary file - read as bytes and show hex
-                        with open(temp_path, "rb") as f:
-                            data = f.read(1024)  # Limit to first 1KB
-                            content = " ".join(f"{b:02x}" for b in data)
-                            if len(data) >= 1024:
-                                content += "... (binary file truncated)"
-                
-                return content
-                
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-                    
-        except Exception as e:
-            self.logger.error(f"Cat operation failed: {e}")
-            raise
+        # Note: This would require downloading and reading the file
+        raise NotImplementedError("Cat operation not yet implemented")
     
     def pwd(self) -> str:
         """
-        Print working directory (MEGAcmd standard).
+        Print working directory (MEGAcmd standard - placeholder).
         
         Returns:
             Current working directory
         """
-        return self._current_directory
+        # Note: MEGA doesn't have a current directory concept in the traditional sense
+        return "/"
     
     def cd(self, path: str) -> bool:
         """
@@ -4562,54 +4456,13 @@ class MPLClient:
         Returns:
             True if successful
         """
-        try:
-            # Validate path exists
-            if path == "..":
-                # Go up one directory
-                if self._current_directory != "/":
-                    parts = self._current_directory.rstrip("/").split("/")
-                    if len(parts) > 1:
-                        self._current_directory = "/" + "/".join(parts[:-1])
-                    else:
-                        self._current_directory = "/"
-                return True
-            elif path == ".":
-                # Stay in current directory
-                return True
-            elif path.startswith("/"):
-                # Absolute path
-                node = get_node_by_path(path)
-                if not node:
-                    raise RequestError(f"Directory not found: {path}")
-                if not node.is_folder():
-                    raise RequestError(f"Not a directory: {path}")
-                self._current_directory = path
-                self._directory_history.append(path)
-                return True
-            else:
-                # Relative path
-                if self._current_directory == "/":
-                    full_path = "/" + path
-                else:
-                    full_path = self._current_directory + "/" + path
-                
-                node = get_node_by_path(full_path)
-                if not node:
-                    raise RequestError(f"Directory not found: {full_path}")
-                if not node.is_folder():
-                    raise RequestError(f"Not a directory: {full_path}")
-                
-                self._current_directory = full_path
-                self._directory_history.append(full_path)
-                return True
-                
-        except Exception as e:
-            self.logger.error(f"Change directory failed: {e}")
-            return False
+        # Note: MEGA doesn't have a session directory state like traditional filesystems
+        # This would require implementing a session state tracker
+        raise NotImplementedError("Change directory not applicable to MEGA cloud storage")
     
     def du(self, path: str = "/") -> Dict[str, Any]:
         """
-        Show directory usage (MEGAcmd standard).
+        Show directory usage (MEGAcmd standard - placeholder).
         
         Args:
             path: Directory path
@@ -4617,62 +4470,12 @@ class MPLClient:
         Returns:
             Usage information
         """
-        try:
-            # Get directory node
-            node = get_node_by_path(path)
-            if not node:
-                raise RequestError(f"Directory not found: {path}")
-            
-            # Calculate usage recursively
-            def calculate_size(current_node, depth=0):
-                total_size = 0
-                file_count = 0
-                folder_count = 0
-                
-                if current_node.is_folder():
-                    folder_count = 1
-                    # Get children
-                    children = self.list(current_node.get_path())
-                    for child in children:
-                        if child.is_folder():
-                            child_size, child_files, child_folders = calculate_size(child, depth + 1)
-                            total_size += child_size
-                            file_count += child_files
-                            folder_count += child_folders
-                        else:
-                            total_size += child.size
-                            file_count += 1
-                else:
-                    total_size = current_node.size
-                    file_count = 1
-                
-                return total_size, file_count, folder_count
-            
-            total_size, file_count, folder_count = calculate_size(node)
-            
-            # Format sizes
-            def format_size(size_bytes):
-                for unit in ["B", "KB", "MB", "GB", "TB"]:
-                    if size_bytes < 1024.0:
-                        return f"{size_bytes:.1f}{unit}"
-                    size_bytes /= 1024.0
-                return f"{size_bytes:.1f}PB"
-            
-            return {
-                "path": path,
-                "total_size": total_size,
-                "total_size_formatted": format_size(total_size),
-                "file_count": file_count,
-                "folder_count": folder_count
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Directory usage calculation failed: {e}")
-            raise
+        # This could be implemented by traversing nodes and summing sizes
+        raise NotImplementedError("Directory usage calculation not yet implemented")
     
     def tree(self, path: str = "/") -> str:
         """
-        Show directory tree (MEGAcmd standard).
+        Show directory tree (MEGAcmd standard - placeholder).
         
         Args:
             path: Root path for tree
@@ -4680,58 +4483,8 @@ class MPLClient:
         Returns:
             Tree representation as string
         """
-        try:
-            # Get root node
-            root_node = get_node_by_path(path)
-            if not root_node:
-                raise RequestError(f"Directory not found: {path}")
-            
-            if not root_node.is_folder():
-                raise RequestError(f"Not a directory: {path}")
-            
-            # Build tree recursively
-            def build_tree(node, prefix="", is_last=True, depth=0, max_depth=3):
-                if depth > max_depth:
-                    return ""
-                
-                tree_str = ""
-                connector = "└── " if is_last else "├── "
-                tree_str += prefix + connector + node.name + "\n"
-                
-                if node.is_folder():
-                    try:
-                        children = self.list(node.get_path())
-                        children.sort(key=lambda x: (not x.is_folder(), x.name.lower()))
-                        
-                        for i, child in enumerate(children):
-                            is_last_child = (i == len(children) - 1)
-                            extension = "    " if is_last else "│   "
-                            tree_str += build_tree(
-                                child, 
-                                prefix + extension, 
-                                is_last_child, 
-                                depth + 1, 
-                                max_depth
-                            )
-                    except Exception:
-                        # Skip if cannot access children
-                        pass
-                
-                return tree_str
-            
-            result = path + "\n"
-            children = self.list(path)
-            children.sort(key=lambda x: (not x.is_folder(), x.name.lower()))
-            
-            for i, child in enumerate(children):
-                is_last = (i == len(children) - 1)
-                result += build_tree(child, "", is_last, 1)
-            
-            return result.rstrip()
-            
-        except Exception as e:
-            self.logger.error(f"Tree display failed: {e}")
-            raise
+        # This could be implemented by recursively traversing the filesystem
+        raise NotImplementedError("Tree display not yet implemented")
     
     # ==============================================
     # === MEGAcmd AUTHENTICATION COMMANDS ===
@@ -4810,21 +4563,16 @@ class MPLClient:
     
     def transfers(self) -> Dict[str, Any]:
         """
-        Show transfer information (MEGAcmd standard).
+        Show transfer information (MEGAcmd standard - placeholder).
         
         Returns:
             Transfer status information
         """
-        # Basic transfer monitoring - shows placeholder data for now
-        # In a full implementation, this would track active downloads/uploads
-        return {
-            "active_transfers": 0,
-            "completed_transfers": 0,
-            "failed_transfers": 0,
-            "queued_transfers": 0,
-            "total_speed": "0 B/s",
-            "status": "No active transfers"
-        }
+        # This would show active transfers, queues, etc.
+        if hasattr(self, 'get_transfer_queue'):
+            return self.get_transfer_queue()
+        else:
+            return {'active_transfers': 0, 'queued_transfers': 0}
     
     def mediainfo(self, path: str) -> Dict[str, Any]:
         """
@@ -4877,7 +4625,7 @@ class MPLClient:
     
     def cancel(self, transfer_id: str = None) -> bool:
         """
-        Cancel operations (MEGAcmd standard).
+        Cancel operations (MEGAcmd standard - placeholder).
         
         Args:
             transfer_id: Transfer ID to cancel (None for all)
@@ -4885,15 +4633,8 @@ class MPLClient:
         Returns:
             True if cancellation successful
         """
-        # Basic cancel implementation - placeholder for now
-        # In a full implementation, this would cancel active transfers
-        if transfer_id:
-            self.logger.info(f"Cancelling transfer: {transfer_id}")
-        else:
-            self.logger.info("Cancelling all transfers")
-        
-        # For now, just return success
-        return True
+        # This would cancel active transfers
+        raise NotImplementedError("Cancel operation not yet implemented")
     
     def confirmcancel(self, transfer_id: str) -> bool:
         """
@@ -5644,7 +5385,7 @@ Use help('command_name') for specific command help.
     
     def cp(self, source_path: str, destination_path: str) -> bool:
         """
-        Copy files (MEGAcmd standard).
+        Copy files (MEGAcmd standard - placeholder).
         
         Args:
             source_path: Source path
@@ -5698,7 +5439,7 @@ Use help('command_name') for specific command help.
     
     def cat(self, path: str) -> str:
         """
-        Display file contents (MEGAcmd standard).
+        Display file contents (MEGAcmd standard - placeholder).
         
         Args:
             path: File path
@@ -5711,16 +5452,17 @@ Use help('command_name') for specific command help.
     
     def pwd(self) -> str:
         """
-        Print working directory (MEGAcmd standard).
+        Print working directory (MEGAcmd standard - placeholder).
         
         Returns:
             Current working directory
         """
-        return self._current_directory
+        # Note: MEGA doesn't have a current directory concept in the traditional sense
+        return "/"
     
     def cd(self, path: str) -> bool:
         """
-        Change directory (MEGAcmd standard).
+        Change directory (MEGAcmd standard - placeholder).
         
         Args:
             path: Directory path
@@ -5728,54 +5470,13 @@ Use help('command_name') for specific command help.
         Returns:
             True if successful
         """
-        try:
-            # Validate path exists
-            if path == "..":
-                # Go up one directory
-                if self._current_directory != "/":
-                    parts = self._current_directory.rstrip("/").split("/")
-                    if len(parts) > 1:
-                        self._current_directory = "/" + "/".join(parts[:-1])
-                    else:
-                        self._current_directory = "/"
-                return True
-            elif path == ".":
-                # Stay in current directory
-                return True
-            elif path.startswith("/"):
-                # Absolute path
-                node = get_node_by_path(path)
-                if not node:
-                    raise RequestError(f"Directory not found: {path}")
-                if not node.is_folder():
-                    raise RequestError(f"Not a directory: {path}")
-                self._current_directory = path
-                self._directory_history.append(path)
-                return True
-            else:
-                # Relative path
-                if self._current_directory == "/":
-                    full_path = "/" + path
-                else:
-                    full_path = self._current_directory + "/" + path
-                
-                node = get_node_by_path(full_path)
-                if not node:
-                    raise RequestError(f"Directory not found: {full_path}")
-                if not node.is_folder():
-                    raise RequestError(f"Not a directory: {full_path}")
-                
-                self._current_directory = full_path
-                self._directory_history.append(full_path)
-                return True
-                
-        except Exception as e:
-            self.logger.error(f"Change directory failed: {e}")
-            return False
+        # Note: MEGA doesn't have a session directory state like traditional filesystems
+        # This would require implementing a session state tracker
+        raise NotImplementedError("Change directory not applicable to MEGA cloud storage")
     
     def du(self, path: str = "/") -> Dict[str, Any]:
         """
-        Show directory usage (MEGAcmd standard).
+        Show directory usage (MEGAcmd standard - placeholder).
         
         Args:
             path: Directory path
@@ -5788,7 +5489,7 @@ Use help('command_name') for specific command help.
     
     def tree(self, path: str = "/") -> str:
         """
-        Show directory tree (MEGAcmd standard).
+        Show directory tree (MEGAcmd standard - placeholder).
         
         Args:
             path: Root path for tree
@@ -5876,21 +5577,16 @@ Use help('command_name') for specific command help.
     
     def transfers(self) -> Dict[str, Any]:
         """
-        Show transfer information (MEGAcmd standard).
+        Show transfer information (MEGAcmd standard - placeholder).
         
         Returns:
             Transfer status information
         """
-        # Basic transfer monitoring - shows placeholder data for now
-        # In a full implementation, this would track active downloads/uploads
-        return {
-            "active_transfers": 0,
-            "completed_transfers": 0,
-            "failed_transfers": 0,
-            "queued_transfers": 0,
-            "total_speed": "0 B/s",
-            "status": "No active transfers"
-        }
+        # This would show active transfers, queues, etc.
+        if hasattr(self, 'get_transfer_queue'):
+            return self.get_transfer_queue()
+        else:
+            return {'active_transfers': 0, 'queued_transfers': 0}
     
     def mediainfo(self, path: str) -> Dict[str, Any]:
         """
