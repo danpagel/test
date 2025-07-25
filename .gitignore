@@ -1,0 +1,14 @@
+# Backup files
+*_backup.py
+*_backup
+*_original.py
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Test artifacts
+.pytest_cache/
+.coverage
