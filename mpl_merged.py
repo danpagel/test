@@ -112,17 +112,17 @@ def _install_and_import(package: str, pip_name: Optional[str] = None) -> None:
 
 # Install required packages if not available
 try:
-    from Crypto.Cipher import AES
-    from Crypto.Hash import SHA256
-    from Crypto.Random import get_random_bytes
-    from Crypto.Util.Padding import pad, unpad
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Hash import SHA256
+    from Cryptodome.Random import get_random_bytes
+    from Cryptodome.Util.Padding import pad, unpad
 except ImportError:
-    _install_and_import("pycryptodome", "pycryptodome")
+    _install_and_import("pycryptodomex", "pycryptodomex")
     # Import after installation
-    from Crypto.Cipher import AES
-    from Crypto.Hash import SHA256
-    from Crypto.Random import get_random_bytes
-    from Crypto.Util.Padding import pad, unpad
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Hash import SHA256
+    from Cryptodome.Random import get_random_bytes
+    from Cryptodome.Util.Padding import pad, unpad
 
 try:
     import requests
