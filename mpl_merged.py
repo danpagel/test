@@ -4271,10 +4271,13 @@ class MPLClient:
         clear_network_cache()
         fs_tree.clear()
     
-    # Alias for create_folder to match common mkdir interface
+    # ==============================================
+    # === MEGAcmd STANDARD COMMANDS ===
+    # ==============================================
+    
     def mkdir(self, path: str) -> MegaNode:
         """
-        Create a directory (alias for create_folder).
+        Create a directory (MEGAcmd standard).
         
         Args:
             path: Full path to create, e.g., "/newfolder" or "newfolder"
@@ -4300,6 +4303,754 @@ class MPLClient:
             folder_name = clean_path
         
         return self.create_folder(folder_name, parent_path)
+    
+    def ls(self, path: str = "/") -> List[MegaNode]:
+        """
+        List directory contents (MEGAcmd standard).
+        
+        Args:
+            path: Directory path to list (default: root)
+            
+        Returns:
+            List of nodes in the directory
+        """
+        return self.list(path)
+    
+    def rm(self, path: str) -> bool:
+        """
+        Remove files/folders (MEGAcmd standard).
+        
+        Args:
+            path: Path to remove
+            
+        Returns:
+            True if removal successful
+        """
+        return self.delete(path)
+    
+    def mv(self, source_path: str, destination_path: str) -> bool:
+        """
+        Move/rename files (MEGAcmd standard).
+        
+        Args:
+            source_path: Source path
+            destination_path: Destination path
+            
+        Returns:
+            True if move successful
+        """
+        return self.move(source_path, destination_path)
+    
+    def cp(self, source_path: str, destination_path: str) -> bool:
+        """
+        Copy files (MEGAcmd standard - placeholder).
+        
+        Args:
+            source_path: Source path
+            destination_path: Destination path
+            
+        Returns:
+            True if copy successful
+        """
+        # Note: MEGA doesn't have direct copy - this would need to be implemented
+        # as download + upload or using API server-side copy if available
+        raise NotImplementedError("Copy operation not yet implemented")
+    
+    def get(self, remote_path: str, local_path: str) -> bool:
+        """
+        Download files (MEGAcmd standard).
+        
+        Args:
+            remote_path: Remote file path
+            local_path: Local destination path
+            
+        Returns:
+            True if download successful
+        """
+        return self.download(remote_path, local_path)
+    
+    def put(self, local_path: str, remote_path: str = "/") -> MegaNode:
+        """
+        Upload files (MEGAcmd standard).
+        
+        Args:
+            local_path: Local file path
+            remote_path: Remote destination folder
+            
+        Returns:
+            Uploaded file node
+        """
+        return self.upload(local_path, remote_path)
+    
+    def find(self, pattern: str, folder_path: str = None) -> List[MegaNode]:
+        """
+        Search for files (MEGAcmd standard).
+        
+        Args:
+            pattern: Search pattern
+            folder_path: Folder to search in
+            
+        Returns:
+            List of matching nodes
+        """
+        return self.search(pattern, folder_path)
+    
+    def cat(self, path: str) -> str:
+        """
+        Display file contents (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: File path
+            
+        Returns:
+            File contents as string
+        """
+        # Note: This would require downloading and reading the file
+        raise NotImplementedError("Cat operation not yet implemented")
+    
+    def pwd(self) -> str:
+        """
+        Print working directory (MEGAcmd standard - placeholder).
+        
+        Returns:
+            Current working directory
+        """
+        # Note: MEGA doesn't have a current directory concept in the traditional sense
+        return "/"
+    
+    def cd(self, path: str) -> bool:
+        """
+        Change directory (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Directory path
+            
+        Returns:
+            True if successful
+        """
+        # Note: MEGA doesn't have a session directory state like traditional filesystems
+        # This would require implementing a session state tracker
+        raise NotImplementedError("Change directory not applicable to MEGA cloud storage")
+    
+    def du(self, path: str = "/") -> Dict[str, Any]:
+        """
+        Show directory usage (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Directory path
+            
+        Returns:
+            Usage information
+        """
+        # This could be implemented by traversing nodes and summing sizes
+        raise NotImplementedError("Directory usage calculation not yet implemented")
+    
+    def tree(self, path: str = "/") -> str:
+        """
+        Show directory tree (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Root path for tree
+            
+        Returns:
+            Tree representation as string
+        """
+        # This could be implemented by recursively traversing the filesystem
+        raise NotImplementedError("Tree display not yet implemented")
+    
+    # ==============================================
+    # === MEGAcmd AUTHENTICATION COMMANDS ===
+    # ==============================================
+    
+    def signup(self, email: str, password: str, first_name: str = "", last_name: str = "") -> bool:
+        """
+        Create new account (MEGAcmd standard).
+        
+        Args:
+            email: User email
+            password: User password  
+            first_name: First name
+            last_name: Last name
+            
+        Returns:
+            True if signup successful
+        """
+        return self.register(email, password, first_name, last_name)
+    
+    def passwd(self, old_password: str, new_password: str) -> bool:
+        """
+        Change password (MEGAcmd standard).
+        
+        Args:
+            old_password: Current password
+            new_password: New password
+            
+        Returns:
+            True if password change successful
+        """
+        return self.change_password(old_password, new_password)
+    
+    def whoami(self) -> Optional[str]:
+        """
+        Show current user (MEGAcmd standard).
+        
+        Returns:
+            Current user email or None
+        """
+        return self.get_current_user()
+    
+    def confirm(self, email: str, verification_code: str) -> bool:
+        """
+        Confirm account (MEGAcmd standard).
+        
+        Args:
+            email: Email address
+            verification_code: Verification code
+            
+        Returns:
+            True if confirmation successful
+        """
+        return self.verify_email(email, verification_code)
+    
+    def session(self) -> Dict[str, Any]:
+        """
+        Show session information (MEGAcmd standard).
+        
+        Returns:
+            Session information
+        """
+        if self.is_logged_in():
+            return {
+                'logged_in': True,
+                'user': self.get_current_user(),
+                'user_info': self.get_user_info(),
+                'quota': self.get_user_quota()
+            }
+        else:
+            return {'logged_in': False}
+    
+    # ==============================================
+    # === MEGAcmd TRANSFER COMMANDS ===  
+    # ==============================================
+    
+    def transfers(self) -> Dict[str, Any]:
+        """
+        Show transfer information (MEGAcmd standard - placeholder).
+        
+        Returns:
+            Transfer status information
+        """
+        # This would show active transfers, queues, etc.
+        if hasattr(self, 'get_transfer_queue'):
+            return self.get_transfer_queue()
+        else:
+            return {'active_transfers': 0, 'queued_transfers': 0}
+    
+    def mediainfo(self, path: str) -> Dict[str, Any]:
+        """
+        Show media file information (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Media file path
+            
+        Returns:
+            Media information
+        """
+        # This would analyze media files for codec, resolution, etc.
+        if hasattr(self, 'get_media_type'):
+            node = self.get_node_info(path)
+            if node:
+                return {'path': path, 'type': self.get_media_type(node)}
+        return {'error': 'Media information not available'}
+    
+    # ==============================================
+    # === MEGAcmd ADVANCED COMMANDS (Placeholders) ===
+    # ==============================================
+    
+    def lcd(self, path: str) -> bool:
+        """
+        Change local directory (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Local directory path
+            
+        Returns:
+            True if successful
+        """
+        # Local directory change for client operations
+        try:
+            import os
+            os.chdir(path)
+            return True
+        except Exception:
+            return False
+    
+    def lpwd(self) -> str:
+        """
+        Print local working directory (MEGAcmd standard).
+        
+        Returns:
+            Current local working directory
+        """
+        import os
+        return os.getcwd()
+    
+    def cancel(self, transfer_id: str = None) -> bool:
+        """
+        Cancel operations (MEGAcmd standard - placeholder).
+        
+        Args:
+            transfer_id: Transfer ID to cancel (None for all)
+            
+        Returns:
+            True if cancellation successful
+        """
+        # This would cancel active transfers
+        raise NotImplementedError("Cancel operation not yet implemented")
+    
+    def confirmcancel(self, transfer_id: str) -> bool:
+        """
+        Confirm cancellation (MEGAcmd standard - placeholder).
+        
+        Args:
+            transfer_id: Transfer ID to confirm cancellation
+            
+        Returns:
+            True if confirmation successful
+        """
+        # This would confirm transfer cancellation
+        raise NotImplementedError("Confirm cancel operation not yet implemented")
+    
+    def share(self, path: str, level: str = "read") -> Dict[str, Any]:
+        """
+        Share files/folders (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Path to share
+            level: Permission level
+            
+        Returns:
+            Share information
+        """
+        # This would create shares with permissions
+        if hasattr(self, 'create_public_link'):
+            link = self.create_public_link(path)
+            return {'path': path, 'link': link, 'level': level}
+        raise NotImplementedError("Share operation not yet implemented")
+    
+    def users(self) -> List[Dict[str, Any]]:
+        """
+        Show users (MEGAcmd standard - placeholder).
+        
+        Returns:
+            List of users
+        """
+        # This would show user information, contacts, etc.
+        raise NotImplementedError("Users operation not yet implemented")
+    
+    def invite(self, email: str, level: str = "read") -> bool:
+        """
+        Invite users (MEGAcmd standard - placeholder).
+        
+        Args:
+            email: User email to invite
+            level: Permission level
+            
+        Returns:
+            True if invitation successful
+        """
+        # This would send user invitations
+        raise NotImplementedError("Invite operation not yet implemented")
+    
+    def ipc(self, path: str, action: str) -> bool:
+        """
+        Incoming share control (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Share path
+            action: Action to perform
+            
+        Returns:
+            True if action successful
+        """
+        # This would manage incoming shares
+        raise NotImplementedError("IPC operation not yet implemented")
+    
+    def sync(self, local_path: str, remote_path: str, action: str = "add") -> bool:
+        """
+        Manage sync folders (MEGAcmd standard - placeholder).
+        
+        Args:
+            local_path: Local folder path
+            remote_path: Remote folder path
+            action: Sync action (add, remove, etc.)
+            
+        Returns:
+            True if sync operation successful
+        """
+        # This would manage sync folders
+        if hasattr(self, 'start_sync'):
+            if action == "add":
+                return self.start_sync(local_path, remote_path)
+        raise NotImplementedError("Sync operation not yet implemented")
+    
+    def backup(self, local_path: str, remote_path: str, action: str = "add") -> bool:
+        """
+        Backup management (MEGAcmd standard - placeholder).
+        
+        Args:
+            local_path: Local path to backup
+            remote_path: Remote backup location
+            action: Backup action
+            
+        Returns:
+            True if backup operation successful
+        """
+        # This would manage backups
+        raise NotImplementedError("Backup operation not yet implemented")
+    
+    def export(self, path: str, password: str = None) -> str:
+        """
+        Create public links (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Path to export
+            password: Optional password protection
+            
+        Returns:
+            Public link URL
+        """
+        if hasattr(self, 'create_public_link'):
+            return self.create_public_link(path)
+        raise NotImplementedError("Export operation not yet implemented")
+    
+    def import_(self, link: str, password: str = None) -> bool:
+        """
+        Import shared folders (MEGAcmd standard - placeholder).
+        
+        Args:
+            link: Share link to import
+            password: Optional password
+            
+        Returns:
+            True if import successful
+        """
+        # This would import shared content
+        raise NotImplementedError("Import operation not yet implemented")
+    
+    def exclude(self, pattern: str, action: str = "add") -> bool:
+        """
+        Exclude patterns (MEGAcmd standard - placeholder).
+        
+        Args:
+            pattern: Exclusion pattern
+            action: Action (add, remove)
+            
+        Returns:
+            True if exclusion successful
+        """
+        # This would manage sync exclusions
+        raise NotImplementedError("Exclude operation not yet implemented")
+    
+    def df(self) -> Dict[str, Any]:
+        """
+        Disk usage (MEGAcmd standard).
+        
+        Returns:
+            Storage usage information
+        """
+        return self.get_user_quota()
+    
+    def version(self) -> str:
+        """
+        Version information (MEGAcmd standard).
+        
+        Returns:
+            Version string
+        """
+        return "MegaPythonLibrary v2.5.0-merged (MEGAcmd compatible)"
+    
+    def debug(self, level: str = "info") -> bool:
+        """
+        Debug settings (MEGAcmd standard - placeholder).
+        
+        Args:
+            level: Debug level
+            
+        Returns:
+            True if debug setting successful
+        """
+        # This would configure debug/logging levels
+        import logging
+        levels = {
+            'debug': logging.DEBUG,
+            'info': logging.INFO,
+            'warning': logging.WARNING,
+            'error': logging.ERROR
+        }
+        if level.lower() in levels:
+            self.logger.setLevel(levels[level.lower()])
+            return True
+        return False
+    
+    def ls(self, path: str = "/") -> List[MegaNode]:
+        """
+        List directory contents (MEGAcmd standard).
+        
+        Args:
+            path: Directory path to list (default: root)
+            
+        Returns:
+            List of nodes in the directory
+        """
+        return self.list(path)
+    
+    def rm(self, path: str) -> bool:
+        """
+        Remove files/folders (MEGAcmd standard).
+        
+        Args:
+            path: Path to remove
+            
+        Returns:
+            True if removal successful
+        """
+        return self.delete(path)
+    
+    def mv(self, source_path: str, destination_path: str) -> bool:
+        """
+        Move/rename files (MEGAcmd standard).
+        
+        Args:
+            source_path: Source path
+            destination_path: Destination path
+            
+        Returns:
+            True if move successful
+        """
+        return self.move(source_path, destination_path)
+    
+    def cp(self, source_path: str, destination_path: str) -> bool:
+        """
+        Copy files (MEGAcmd standard - placeholder).
+        
+        Args:
+            source_path: Source path
+            destination_path: Destination path
+            
+        Returns:
+            True if copy successful
+        """
+        # Note: MEGA doesn't have direct copy - this would need to be implemented
+        # as download + upload or using API server-side copy if available
+        raise NotImplementedError("Copy operation not yet implemented")
+    
+    def get(self, remote_path: str, local_path: str) -> bool:
+        """
+        Download files (MEGAcmd standard).
+        
+        Args:
+            remote_path: Remote file path
+            local_path: Local destination path
+            
+        Returns:
+            True if download successful
+        """
+        return self.download(remote_path, local_path)
+    
+    def put(self, local_path: str, remote_path: str = "/") -> MegaNode:
+        """
+        Upload files (MEGAcmd standard).
+        
+        Args:
+            local_path: Local file path
+            remote_path: Remote destination folder
+            
+        Returns:
+            Uploaded file node
+        """
+        return self.upload(local_path, remote_path)
+    
+    def find(self, pattern: str, folder_path: str = None) -> List[MegaNode]:
+        """
+        Search for files (MEGAcmd standard).
+        
+        Args:
+            pattern: Search pattern
+            folder_path: Folder to search in
+            
+        Returns:
+            List of matching nodes
+        """
+        return self.search(pattern, folder_path)
+    
+    def cat(self, path: str) -> str:
+        """
+        Display file contents (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: File path
+            
+        Returns:
+            File contents as string
+        """
+        # Note: This would require downloading and reading the file
+        raise NotImplementedError("Cat operation not yet implemented")
+    
+    def pwd(self) -> str:
+        """
+        Print working directory (MEGAcmd standard - placeholder).
+        
+        Returns:
+            Current working directory
+        """
+        # Note: MEGA doesn't have a current directory concept in the traditional sense
+        return "/"
+    
+    def cd(self, path: str) -> bool:
+        """
+        Change directory (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Directory path
+            
+        Returns:
+            True if successful
+        """
+        # Note: MEGA doesn't have a session directory state like traditional filesystems
+        # This would require implementing a session state tracker
+        raise NotImplementedError("Change directory not applicable to MEGA cloud storage")
+    
+    def du(self, path: str = "/") -> Dict[str, Any]:
+        """
+        Show directory usage (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Directory path
+            
+        Returns:
+            Usage information
+        """
+        # This could be implemented by traversing nodes and summing sizes
+        raise NotImplementedError("Directory usage calculation not yet implemented")
+    
+    def tree(self, path: str = "/") -> str:
+        """
+        Show directory tree (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Root path for tree
+            
+        Returns:
+            Tree representation as string
+        """
+        # This could be implemented by recursively traversing the filesystem
+        raise NotImplementedError("Tree display not yet implemented")
+    
+    # ==============================================
+    # === MEGAcmd AUTHENTICATION COMMANDS ===
+    # ==============================================
+    
+    def signup(self, email: str, password: str, first_name: str = "", last_name: str = "") -> bool:
+        """
+        Create new account (MEGAcmd standard).
+        
+        Args:
+            email: User email
+            password: User password  
+            first_name: First name
+            last_name: Last name
+            
+        Returns:
+            True if signup successful
+        """
+        return self.register(email, password, first_name, last_name)
+    
+    def passwd(self, old_password: str, new_password: str) -> bool:
+        """
+        Change password (MEGAcmd standard).
+        
+        Args:
+            old_password: Current password
+            new_password: New password
+            
+        Returns:
+            True if password change successful
+        """
+        return self.change_password(old_password, new_password)
+    
+    def whoami(self) -> Optional[str]:
+        """
+        Show current user (MEGAcmd standard).
+        
+        Returns:
+            Current user email or None
+        """
+        return self.get_current_user()
+    
+    def confirm(self, email: str, verification_code: str) -> bool:
+        """
+        Confirm account (MEGAcmd standard).
+        
+        Args:
+            email: Email address
+            verification_code: Verification code
+            
+        Returns:
+            True if confirmation successful
+        """
+        return self.verify_email(email, verification_code)
+    
+    def session(self) -> Dict[str, Any]:
+        """
+        Show session information (MEGAcmd standard).
+        
+        Returns:
+            Session information
+        """
+        if self.is_logged_in():
+            return {
+                'logged_in': True,
+                'user': self.get_current_user(),
+                'user_info': self.get_user_info(),
+                'quota': self.get_user_quota()
+            }
+        else:
+            return {'logged_in': False}
+    
+    # ==============================================
+    # === MEGAcmd TRANSFER COMMANDS ===  
+    # ==============================================
+    
+    def transfers(self) -> Dict[str, Any]:
+        """
+        Show transfer information (MEGAcmd standard - placeholder).
+        
+        Returns:
+            Transfer status information
+        """
+        # This would show active transfers, queues, etc.
+        if hasattr(self, 'get_transfer_queue'):
+            return self.get_transfer_queue()
+        else:
+            return {'active_transfers': 0, 'queued_transfers': 0}
+    
+    def mediainfo(self, path: str) -> Dict[str, Any]:
+        """
+        Show media file information (MEGAcmd standard - placeholder).
+        
+        Args:
+            path: Media file path
+            
+        Returns:
+            Media information
+        """
+        # This would analyze media files for codec, resolution, etc.
+        if hasattr(self, 'get_media_type'):
+            node = self.get_node_info(path)
+            if node:
+                return {'path': path, 'type': self.get_media_type(node)}
+        return {'error': 'Media information not available'}
     
     def close(self) -> None:
         """Close client and clean up resources."""

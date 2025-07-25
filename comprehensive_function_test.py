@@ -225,7 +225,7 @@ class ComprehensiveTestSuite:
             download_path = os.path.join(download_dir, local_name)
             
             try:
-                result_path = self.client.download(file_path, download_path)
+                result_path = self.client.get(file_path, download_path)
                 if not result_path or not os.path.exists(result_path):
                     return False
                 
@@ -367,7 +367,7 @@ class ComprehensiveTestSuite:
     
     def test_list(self) -> bool:
         """Test listing folder contents."""
-        files = self.client.list("/")
+        files = self.client.ls("/")
         return isinstance(files, list)
     
     def test_refresh(self) -> bool:
@@ -405,11 +405,11 @@ class ComprehensiveTestSuite:
             
             # Upload file to root directory - try to get root first to make sure it exists
             try:
-                uploaded_node = self.client.upload(local_path, "/")
+                uploaded_node = self.client.put(local_path, "/")
             except Exception as e:
                 if "Remote folder does not exist" in str(e):
                     # Try without specifying path (let it use default)
-                    uploaded_node = self.client.upload(local_path)
+                    uploaded_node = self.client.put(local_path)
                 else:
                     raise e
             
@@ -450,7 +450,7 @@ class ComprehensiveTestSuite:
         download_path = os.path.join(download_dir, target_file)
         
         try:
-            result_path = self.client.download(file_path, download_path)
+            result_path = self.client.get(file_path, download_path)
             
             if result_path and os.path.exists(result_path):
                 # Verify download worked
@@ -483,7 +483,7 @@ class ComprehensiveTestSuite:
             try:
                 node = self.client.mkdir(f"/{folder_name}")
             except AttributeError:
-                node = self.client.create_folder(folder_name)
+                node = self.client.mkdir(folder_name)
             
             self.results.track_folder(folder_name)
             
@@ -549,7 +549,7 @@ class ComprehensiveTestSuite:
         
         try:
             # Move to the destination folder (signature: source_path, destination_folder_path)
-            result = self.client.move(f"/{source_file}", f"/{destination_folder}")
+            result = self.client.mv(f"/{source_file}", f"/{destination_folder}")
             
             if result:
                 print(f"      Moved: {source_file} → {destination_folder}")
@@ -628,7 +628,7 @@ class ComprehensiveTestSuite:
             
             try:
                 # Upload file to the test folder
-                uploaded_file = self.client.upload(test_file_path, f"/{test_folder_name}")
+                uploaded_file = self.client.put(test_file_path, f"/{test_folder_name}")
                 if not uploaded_file:
                     print("      Folder copy failed: Cannot upload file to folder")
                     return True  # Still pass, just skip the actual copy
@@ -2847,7 +2847,7 @@ class ComprehensiveTestSuite:
             return True
         
         # Find an actual file that exists
-        current_files = self.client.list("/")
+        current_files = self.client.ls("/")
         our_files = [f.name for f in current_files if f.name in self.results.created_files]
         
         if not our_files:
@@ -2914,7 +2914,7 @@ class ComprehensiveTestSuite:
             return True
         
         # Find a file that actually exists in the cloud storage
-        current_files = self.client.list("/")
+        current_files = self.client.ls("/")
         our_files = [f.name for f in current_files if f.name in self.results.created_files]
         
         if not our_files:
