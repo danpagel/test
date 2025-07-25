@@ -1,0 +1,1 @@
+Standalone test file for individual file operations
