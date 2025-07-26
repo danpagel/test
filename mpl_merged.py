@@ -6006,7 +6006,7 @@ def get_version_info():
 # === MODULE-LEVEL COMPATIBILITY FUNCTIONS ===
 # ==============================================
 
-def get_node_by_path(path: str) -> Optional[Dict[str, Any]]:
+def get_node_by_path_compat(path: str) -> Optional[Dict[str, Any]]:
     """
     Get node by path (compatibility function).
     
@@ -6094,7 +6094,6 @@ __all__ = [
     'get_node_by_path',
     'get_nodes',
     'download_file',
-    'get_node_by_path',
     'search_nodes_by_name',
     
     # Utility functions
@@ -7118,7 +7117,15 @@ def add_enhanced_filesystem_methods(client_class):
         Returns:
             Node if found, None otherwise
         """
-        return get_node_by_path(path)
+        # Call the filesystem function directly to avoid namespace collision
+        if not current_session.is_authenticated:
+            raise RequestError("Not logged in")
+        
+        # Refresh filesystem if needed
+        if fs_tree.needs_refresh() or not fs_tree.nodes:
+            refresh_filesystem()
+        
+        return fs_tree.get_node_by_path(path)
     
     # Add methods to class
     client_class.upload_with_progress = upload_with_progress_method

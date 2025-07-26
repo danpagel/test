@@ -233,12 +233,13 @@ class ComprehensiveTestSuite:
             download_path = os.path.join(download_dir, local_name)
             
             try:
-                result_path = self.client.get(file_path, download_path)
-                if not result_path or not os.path.exists(result_path):
+                # Download the file - download() returns bool, not path
+                download_success = self.client.get(file_path, download_path)
+                if not download_success or not os.path.exists(download_path):
                     return False
                 
                 # Read and verify content
-                with open(result_path, 'r', encoding='utf-8') as f:
+                with open(download_path, 'r', encoding='utf-8') as f:
                     downloaded_content = f.read().strip()
                 
                 return downloaded_content == content.strip()
@@ -468,11 +469,12 @@ class ComprehensiveTestSuite:
         download_path = os.path.join(download_dir, target_file)
         
         try:
-            result_path = self.client.get(file_path, download_path)
+            # Download the file - download() returns bool, not path
+            download_success = self.client.get(file_path, download_path)
             
-            if result_path and os.path.exists(result_path):
+            if download_success and os.path.exists(download_path):
                 # Verify download worked
-                file_size = os.path.getsize(result_path)
+                file_size = os.path.getsize(download_path)
                 print(f"      Downloaded: {target_file} ({file_size} bytes)")
                 return True
             else:
@@ -2351,11 +2353,11 @@ class ComprehensiveTestSuite:
         download_path = os.path.join(download_dir, target_file)
         
         try:
-            # Test get alias (should work like download)
-            result_path = self.client.get(file_path, download_path)
+            # Test get alias (should work like download) - returns bool, not path
+            download_success = self.client.get(file_path, download_path)
             
-            if result_path and os.path.exists(result_path):
-                file_size = os.path.getsize(result_path)
+            if download_success and os.path.exists(download_path):
+                file_size = os.path.getsize(download_path)
                 print(f"      ✅ Get alias successful: {target_file} ({file_size} bytes)")
                 return True
             else:
