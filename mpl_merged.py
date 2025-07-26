@@ -3906,6 +3906,54 @@ class MPLClient:
     into a single, easy-to-use interface.
     """
     
+    class MockNode:
+        """Mock node class that mimics MegaNode interface for testing."""
+        def __init__(self, name: str, path: str, node_type: str = 'file', size: int = 1024):
+            self.name = name
+            self.path = path
+            self.size = size
+            self.handle = f"mock_{name}_{hash(path) % 10000}"
+            self.node_type = 1 if node_type == 'folder' else 0  # NODE_TYPE_FOLDER = 1, NODE_TYPE_FILE = 0
+            self.parent_handle = "mock_parent"
+            self.owner = "mock_user"
+            self.timestamp = int(time.time())
+            self.created_time = self.timestamp
+            self.modified_time = self.timestamp
+            self.attributes = {'n': name}
+            self.key = None
+            self.decryption_key = None
+            self.encrypted_key_data = ''
+            
+        def is_file(self) -> bool:
+            """Check if node is a file."""
+            return self.node_type == 0
+            
+        def is_folder(self) -> bool:
+            """Check if node is a folder."""
+            return self.node_type == 1
+            
+        def is_root(self) -> bool:
+            """Check if node is the root folder."""
+            return self.node_type == 2
+            
+        def is_trash(self) -> bool:
+            """Check if node is in trash."""
+            return self.node_type == 3
+            
+        def get_size_formatted(self) -> str:
+            """Get human-readable file size."""
+            return f"{self.size} bytes"
+            
+        def to_dict(self) -> Dict[str, Any]:
+            """Convert node to dictionary."""
+            return {
+                'handle': self.handle,
+                'name': self.name,
+                'size': self.size,
+                'type': self.node_type,
+                'path': self.path
+            }
+    
     def __init__(self, auto_login: bool = True, mock_mode: bool = False):
         """
         Initialize Mega client.
@@ -4214,33 +4262,12 @@ class MPLClient:
                 return None
             self.logger.info(f"Mock upload_file: {local_path} -> {remote_path}")
             
-            # Create mock MegaNode-like object
-            class MockNode:
-                def __init__(self, name: str, path: str):
-                    self.name = name
-                    self.path = path
-                    self.size = 1024
-                    self.type = 'file'
-                    self.handle = f"mock_{name}"
-            
             filename = os.path.basename(local_path)
             full_path = f"{remote_path.rstrip('/')}/{filename}"
-            return MockNode(filename, full_path)
+            return self.MockNode(filename, full_path, 'file', 1024)
         
         try:
             result = upload_file(local_path, remote_path)
-            # If result is boolean True, create a mock node
-            if result is True:
-                class MockNode:
-                    def __init__(self, name: str, path: str):
-                        self.name = name
-                        self.path = path
-                        self.size = 1024
-                        self.type = 'file'
-                
-                filename = os.path.basename(local_path)
-                full_path = f"{remote_path.rstrip('/')}/{filename}"
-                return MockNode(filename, full_path)
             return result
         except Exception:
             return None
@@ -4248,24 +4275,10 @@ class MPLClient:
     def upload(self, local_path: str, remote_path: str = "/"):
         """Upload file and return node (with mock mode support)."""
         if getattr(self, 'mock_mode', False):
-            if not getattr(self, '_mock_logged_in', False):
-                return None
-            self.logger.info(f"Mock upload: {local_path} -> {remote_path}")
-            
-            # Create mock MegaNode-like object
-            class MockNode:
-                def __init__(self, name: str, path: str):
-                    self.name = name
-                    self.path = path
-                    self.size = 1024
-                    self.type = 'file'
-            
-            filename = os.path.basename(local_path)
-            full_path = f"{remote_path.rstrip('/')}/{filename}"
-            return MockNode(filename, full_path)
+            return self.upload_file(local_path, remote_path)
         
         try:
-            return upload(local_path, remote_path)
+            return upload_file_with_events(local_path, remote_path, self._trigger_event)
         except Exception:
             return None
     
@@ -4321,20 +4334,12 @@ class MPLClient:
                 raise RequestError("Not logged in")
             
             # Return mock nodes
-            class MockNode:
-                def __init__(self, name: str, path: str, node_type: str = 'file'):
-                    self.name = name
-                    self.path = path
-                    self.type = node_type
-                    self.size = 1024 if node_type == 'file' else 0
-                    self.handle = f"mock_{name}"
-            
             return [
-                MockNode('mock_folder', '/mock_folder', 'folder'),
-                MockNode('mock_file.txt', '/mock_file.txt', 'file')
+                self.MockNode('mock_folder', '/mock_folder', 'folder'),
+                self.MockNode('mock_file.txt', '/mock_file.txt', 'file')
             ]
         
-        if not is_logged_in():
+        if not self.is_logged_in():
             raise RequestError("Not logged in")
         
         self._refresh_filesystem_if_needed()
@@ -4373,17 +4378,8 @@ class MPLClient:
             
             self.logger.info(f"Mock create folder: {clean_name} in {parent_path}")
             
-            # Create mock folder node
-            class MockNode:
-                def __init__(self, name: str, path: str):
-                    self.name = name
-                    self.path = path
-                    self.type = 'folder'
-                    self.size = 0
-                    self.handle = f"mock_{name}"
-            
             full_path = f"{parent_path.rstrip('/')}/{clean_name}"
-            return MockNode(clean_name, full_path)
+            return self.MockNode(clean_name, full_path, 'folder', 0)
         
         parent_node = get_node_by_path(parent_path)
         if not parent_node:
@@ -4402,6 +4398,9 @@ class MPLClient:
         Returns:
             Uploaded file node
         """
+        if getattr(self, 'mock_mode', False):
+            return self.upload_file(local_path, remote_path)
+        
         return upload_file_with_events(local_path, remote_path, self._trigger_event)
     
     def download(self, remote_path: str, local_path: str) -> bool:
