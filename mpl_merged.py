@@ -4510,9 +4510,8 @@ class MPLClient:
         """
         return get_node_by_path(path)
     
-    def refresh_filesystem(self) -> None:
-        """Refresh filesystem data."""
-        refresh_filesystem_with_events(self._trigger_event)
+    # refresh_filesystem method already defined above with mock mode support
+    # Don't redefine it to avoid conflicts
     
     # ==============================================
     # === EVENT METHODS ===
