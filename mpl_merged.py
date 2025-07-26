@@ -4549,7 +4549,7 @@ class MPLClient:
         Returns:
             Dictionary with storage details
         """
-        if not is_logged_in():
+        if not self.is_logged_in():
             return {'error': 'Not logged in'}
         
         try:
@@ -5913,7 +5913,7 @@ Use help('command_name') for specific command help.
     
     def close(self) -> None:
         """Close client and clean up resources."""
-        if is_logged_in():
+        if self.is_logged_in():
             self.logout()
         
         _api_session.close()
@@ -6836,7 +6836,8 @@ def add_utilities_methods(client_class):
         """
         from pathlib import Path
         try:
-            nodes = list_folder(path)
+            # Use the client's own list method instead of global function
+            nodes = self.list(path)
             if not nodes:
                 return f"Empty folder: {path}\n"
             
@@ -6944,7 +6945,9 @@ def add_utilities_methods(client_class):
             return f"Error building tree for {path}: {e}"
     
     # Add methods to class
-    client_class.ls = ls_method
+    # Don't overwrite the existing ls method that returns List[MegaNode]
+    # client_class.ls = ls_method  # REMOVED - conflicts with MEGAcmd ls method
+    client_class.ls_detailed = ls_method  # Add as separate method
     client_class.find = find_method
     client_class.tree = tree_method
 

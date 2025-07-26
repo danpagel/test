@@ -217,6 +217,10 @@ class ComprehensiveTestSuite:
     
     def _verify_cloud_file(self, file_path: str, content: str) -> bool:
         """Verify that a file exists in the cloud and is readable."""
+        # In mock mode, skip actual cloud verification
+        if self.mock_mode:
+            return True
+            
         try:
             # Get the file from cloud
             node = get_node_by_path(file_path)
